@@ -4,9 +4,17 @@
 
 <div class="card">
   <h2>Household</h2>
-  <form method="post" action="/settings/household" class="row">
-    <input name="household_name" value="{{ household }}">
-    <button class="btn" type="submit">Save</button>
+  <form method="post" action="/settings/household" class="stack">
+    <div class="grid2">
+      <label>Household name
+        <input name="household_name" value="{{ household }}">
+      </label>
+      <label>Timezone <span class="muted small">(IANA name, e.g. America/Chicago — used for
+        "today" on the calendar and wall display)</span>
+        <input name="timezone" value="{{ timezone }}" placeholder="server default">
+      </label>
+    </div>
+    <div><button class="btn" type="submit">Save</button></div>
   </form>
 </div>
 
@@ -20,10 +28,10 @@
       {% if not p['password_hash'] %}<span class="badge pending">hasn't joined yet</span>{% endif %}
     </div>
     <div class="row">
-      {% if p['invite_token'] %}
+      {% if p['invite_token'] and not p['password_hash'] %}
       <input readonly value="{{ base_url }}/invite/{{ p['invite_token'] }}" onclick="this.select()">
       <span class="muted small">← send them this invite link</span>
-      {% elif p['id'] != parent['id'] %}
+      {% elif not p['password_hash'] %}
       <form method="post" action="/settings/parents/{{ p['id'] }}/invite">
         <button class="btn" type="submit">New invite link</button>
       </form>

@@ -152,6 +152,109 @@ def test_login_logout(env, client):
     assert "Week of" in r.text
 
 
+def join_alex(env, conn):
+    invite = conn.execute(
+        "SELECT invite_token FROM parents WHERE name = 'Alex'"
+    ).fetchone()["invite_token"]
+    alex = TestClient(env, follow_redirects=True)
+    alex.post(f"/invite/{invite}", data={"password": "alexpass"})
+    return alex
+
+
+def test_swap_conflicting_with_approved_swap_is_blocked(env, client):
+    do_setup(client)
+    conn = db.connect()
+    alex = join_alex(env, conn)
+
+    start = (date.today() + timedelta(days=10)).isoformat()
+    end = (date.today() + timedelta(days=12)).isoformat()
+    client.post("/swaps/new", data={
+        "range1_parent": "1", "range1_start": start, "range1_end": end,
+    })
+    first_id = conn.execute("SELECT MAX(id) AS id FROM swaps").fetchone()["id"]
+    alex.post(f"/swaps/{first_id}/decide", data={"decision": "approved"})
+    assert conn.execute("SELECT status FROM swaps WHERE id = ?", (first_id,)) \
+        .fetchone()["status"] == "approved"
+
+    # Second swap overlapping the same dates, giving the kids to parent 2.
+    client.post("/swaps/new", data={
+        "range1_parent": "2", "range1_start": start, "range1_end": start,
+    })
+    second_id = conn.execute("SELECT MAX(id) AS id FROM swaps").fetchone()["id"]
+    r = alex.post(f"/swaps/{second_id}/decide", data={"decision": "approved"})
+    assert conn.execute("SELECT status FROM swaps WHERE id = ?", (second_id,)) \
+        .fetchone()["status"] == "pending"
+    # The earlier agreement still owns the date.
+    row = conn.execute(
+        "SELECT parent_id, swap_id FROM custody_overrides WHERE date = ?", (start,)
+    ).fetchone()
+    assert (row["parent_id"], row["swap_id"]) == (1, first_id)
+    assert "already changed by another" in r.text
+    conn.close()
+
+
+def test_login_checks_all_rows_with_same_name(env, client):
+    do_setup(client)
+    conn = db.connect()
+    alex = join_alex(env, conn)
+    # Both parents end up named the same.
+    conn.execute("UPDATE parents SET name = 'Sam Parent'")
+    conn.commit()
+    # Previously only one arbitrary row was checked, so one parent could
+    # never log in. Now both passwords work under the shared name.
+    for password in ("pass1234", "alexpass"):
+        fresh = TestClient(env, follow_redirects=True)
+        r = fresh.post("/login", data={"name": "Sam Parent", "password": password})
+        assert "Week of" in r.text
+    assert "Wrong name" in TestClient(env, follow_redirects=True).post(
+        "/login", data={"name": "Sam Parent", "password": "nope"}
+    ).text
+    conn.close()
+
+
+def test_invite_cannot_take_over_joined_account(env, client):
+    do_setup(client)
+    conn = db.connect()
+    join_alex(env, conn)
+    assert conn.execute(
+        "SELECT password_hash FROM parents WHERE name = 'Alex'"
+    ).fetchone()["password_hash"]
+
+    # Dylan can no longer mint an invite link for Alex's claimed account.
+    client.post("/settings/parents/2/invite")
+    assert conn.execute(
+        "SELECT invite_token FROM parents WHERE id = 2"
+    ).fetchone()["invite_token"] is None
+
+    # Even a lingering token can't reset a claimed account's password.
+    conn.execute("UPDATE parents SET invite_token = 'stale-token' WHERE id = 2")
+    conn.commit()
+    r = client.post("/invite/stale-token", data={"password": "hijacked"},
+                    follow_redirects=False)
+    assert r.status_code == 404
+    login = TestClient(env, follow_redirects=True)
+    assert "Week of" in login.post(
+        "/login", data={"name": "Alex", "password": "alexpass"}
+    ).text
+    conn.close()
+
+
+def test_household_timezone_setting(env, client):
+    do_setup(client)
+    conn = db.connect()
+    client.post("/settings/household", data={
+        "household_name": "Testers", "timezone": "America/Chicago",
+    })
+    assert db.get_setting(conn, "timezone") == "America/Chicago"
+    # An unknown timezone is ignored, keeping the old value.
+    client.post("/settings/household", data={
+        "household_name": "Testers", "timezone": "Not/AZone",
+    })
+    assert db.get_setting(conn, "timezone") == "America/Chicago"
+    assert client.get("/").status_code == 200
+    conn.close()
+
+
 def test_repeating_event_creates_series(env, client):
     do_setup(client)
     first = date.today() + timedelta(days=2)

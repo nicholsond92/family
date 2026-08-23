@@ -128,12 +128,36 @@ def custody_blocks(conn, start: date, end: date):
     return blocks
 
 
-def apply_swap_overrides(conn, swap) -> None:
-    """Write custody overrides for an approved swap request."""
+def _swap_ranges(swap):
     ranges = [(swap["range1_start"], swap["range1_end"], swap["range1_parent"])]
     if swap["range2_start"] and swap["range2_end"] and swap["range2_parent"]:
         ranges.append((swap["range2_start"], swap["range2_end"], swap["range2_parent"]))
-    for start_s, end_s, parent_id in ranges:
+    return ranges
+
+
+def swap_conflicts(conn, swap) -> list[date]:
+    """Dates in this swap's ranges already owned by a different approved swap.
+
+    Approving over these would silently undo an earlier agreement, so the
+    caller should refuse and let the parents sort it out.
+    """
+    conflicts = []
+    for start_s, end_s, _parent in _swap_ranges(swap):
+        d = date.fromisoformat(start_s)
+        end = date.fromisoformat(end_s)
+        while d <= end:
+            row = conn.execute(
+                "SELECT swap_id FROM custody_overrides WHERE date = ?", (d.isoformat(),)
+            ).fetchone()
+            if row and row["swap_id"] and row["swap_id"] != swap["id"]:
+                conflicts.append(d)
+            d += timedelta(days=1)
+    return conflicts
+
+
+def apply_swap_overrides(conn, swap) -> None:
+    """Write custody overrides for an approved swap request."""
+    for start_s, end_s, parent_id in _swap_ranges(swap):
         d = date.fromisoformat(start_s)
         end = date.fromisoformat(end_s)
         while d <= end:

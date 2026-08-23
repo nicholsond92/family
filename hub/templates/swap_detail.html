@@ -18,6 +18,11 @@
     {% if swap['decided_by'] %} · decided by {{ parent_by_id[swap['decided_by']]['name'] }}{% endif %}
   </p>
 
+  {% if conflicts %}
+  <p class="notice">⚠️ This request overlaps days already changed by another approved
+  swap ({{ conflicts[:5] | join(', ') }}{% if conflicts | length > 5 %}, …{% endif %}).
+  It can't be approved as-is — cancel this request or undo the conflicting swap first.</p>
+  {% endif %}
   {% if can_decide %}
   <form method="post" action="/swaps/{{ swap['id'] }}/decide" class="row">
     <button class="btn primary" name="decision" value="approved" type="submit">✓ Approve — update the schedule</button>

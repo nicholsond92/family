@@ -3,6 +3,7 @@
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -68,6 +69,20 @@ def create_app() -> FastAPI:
             return RedirectResponse("/login", status_code=303)
         return None
 
+    def hub_tz(conn):
+        name = db.get_setting(conn, "timezone", "") or ""
+        if name:
+            try:
+                return ZoneInfo(name)
+            except (KeyError, ValueError):
+                pass
+        return None
+
+    def hub_today(conn) -> date:
+        """Today in the household's timezone (falls back to server-local)."""
+        tz = hub_tz(conn)
+        return datetime.now(tz).date() if tz else date.today()
+
     def render(request, name, conn, **ctx):
         ctx.setdefault("parent", current_parent(request, conn))
         ctx.setdefault("household", db.get_setting(conn, "household_name", "Family Hub"))
@@ -92,7 +107,8 @@ def create_app() -> FastAPI:
             out.append({**dict(r), "kids": kids_by_event.get(r["id"], [])})
         return out
 
-    def week_context(conn, start: date):
+    def week_context(conn, start: date, today: date | None = None):
+        today = today or hub_today(conn)
         parent_by_id = {p["id"]: p for p in parents(conn)}
         schedule = custody.load_schedule(conn)
         evs = events_between(conn, start, start + timedelta(days=6))
@@ -106,7 +122,7 @@ def create_app() -> FastAPI:
             days.append({
                 "date": d,
                 "iso": d.isoformat(),
-                "is_today": d == date.today(),
+                "is_today": d == today,
                 "custodian": parent_by_id.get(custodian_id),
                 "has_override": bool(custody.override_on(conn, d)),
                 "events": evs_by_date.get(d.isoformat(), []),
@@ -235,15 +251,18 @@ def create_app() -> FastAPI:
         try:
             form = await request.form()
             name = (form.get("name") or "").strip()
-            row = conn.execute(
+            # Check every matching row so two parents sharing a name (or a
+            # name matching another's email) can both log in.
+            rows = conn.execute(
                 "SELECT * FROM parents WHERE lower(name) = lower(?) OR lower(email) = lower(?)",
                 (name, name),
-            ).fetchone()
-            if row and row["password_hash"] and security.verify_password(
-                form.get("password") or "", row["password_hash"]
-            ):
-                request.session["parent_id"] = row["id"]
-                return RedirectResponse("/", status_code=303)
+            ).fetchall()
+            for row in rows:
+                if row["password_hash"] and security.verify_password(
+                    form.get("password") or "", row["password_hash"]
+                ):
+                    request.session["parent_id"] = row["id"]
+                    return RedirectResponse("/", status_code=303)
             return render(request, "login.html", conn, error="Wrong name or password.")
         finally:
             conn.close()
@@ -258,7 +277,8 @@ def create_app() -> FastAPI:
         conn = get_conn()
         try:
             row = conn.execute(
-                "SELECT * FROM parents WHERE invite_token = ?", (token,)
+                "SELECT * FROM parents WHERE invite_token = ? AND password_hash IS NULL",
+                (token,),
             ).fetchone()
             if not row:
                 return HTMLResponse("Invite link is invalid or already used.", status_code=404)
@@ -270,14 +290,19 @@ def create_app() -> FastAPI:
     async def invite_submit(request: Request, token: str):
         conn = get_conn()
         try:
+            # Invites are only for accounts that haven't joined yet — a claimed
+            # account must never be re-claimable through an invite link, or one
+            # parent could take over the other's identity.
             row = conn.execute(
-                "SELECT * FROM parents WHERE invite_token = ?", (token,)
+                "SELECT * FROM parents WHERE invite_token = ? AND password_hash IS NULL",
+                (token,),
             ).fetchone()
             if not row:
                 return HTMLResponse("Invite link is invalid or already used.", status_code=404)
             form = await request.form()
             conn.execute(
-                "UPDATE parents SET password_hash = ?, invite_token = NULL, email = ? WHERE id = ?",
+                "UPDATE parents SET password_hash = ?, invite_token = NULL, email = ? "
+                "WHERE id = ? AND password_hash IS NULL",
                 (
                     security.hash_password(form["password"]),
                     (form.get("email") or "").strip() or row["email"],
@@ -300,7 +325,7 @@ def create_app() -> FastAPI:
             if redirect:
                 return redirect
             week_start = custody.monday_of(
-                date.fromisoformat(start) if start else date.today()
+                date.fromisoformat(start) if start else hub_today(conn)
             )
             ctx = week_context(conn, week_start)
             pending = conn.execute(
@@ -328,7 +353,7 @@ def create_app() -> FastAPI:
             return render(
                 request, "event_form.html", conn,
                 event=None, kids=kids(conn), event_kid_ids=[],
-                default_date=date_ or date.today().isoformat(),
+                default_date=date_ or hub_today(conn).isoformat(),
             )
         finally:
             conn.close()
@@ -550,12 +575,17 @@ def create_app() -> FastAPI:
                 (swap["thread_id"],),
             ).fetchall()
             me = current_parent(request, conn)
+            conflicts = (
+                custody.swap_conflicts(conn, swap) if swap["status"] == "pending" else []
+            )
             return render(
                 request, "swap_detail.html", conn,
                 swap=swap,
                 parent_by_id={p["id"]: p for p in parents(conn)},
                 messages=msgs,
-                can_decide=(swap["status"] == "pending" and me["id"] != swap["created_by"]),
+                conflicts=conflicts,
+                can_decide=(swap["status"] == "pending" and me["id"] != swap["created_by"]
+                            and not conflicts),
                 can_cancel=(swap["status"] == "pending" and me["id"] == swap["created_by"]),
             )
         finally:
@@ -579,6 +609,21 @@ def create_app() -> FastAPI:
             if decision not in ("approved", "declined"):
                 return RedirectResponse(f"/swaps/{swap_id}", status_code=303)
             now = datetime.now().isoformat(timespec="seconds")
+            if decision == "approved":
+                # Never silently overwrite dates already agreed via another swap.
+                conflicts = custody.swap_conflicts(conn, swap)
+                if conflicts:
+                    days = ", ".join(d.isoformat() for d in conflicts[:10])
+                    conn.execute(
+                        "INSERT INTO messages(thread_id, author_id, body, created_at) "
+                        "VALUES(?, ?, ?, ?)",
+                        (swap["thread_id"], me["id"],
+                         "Couldn't approve: these dates were already changed by another "
+                         f"approved swap: {days}. Cancel this request or the conflicting "
+                         "one first.", now),
+                    )
+                    conn.commit()
+                    return RedirectResponse(f"/swaps/{swap_id}", status_code=303)
             conn.execute(
                 "UPDATE swaps SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?",
                 (decision, now, me["id"], swap_id),
@@ -787,10 +832,10 @@ def create_app() -> FastAPI:
                     "Get the display link from the Feeds &amp; Display page.</p>",
                     status_code=403,
                 )
-            today = date.today()
+            today = hub_today(conn)
             week_start = custody.monday_of(today)
-            ctx = week_context(conn, week_start)
-            next_ctx = week_context(conn, week_start + timedelta(days=7))
+            ctx = week_context(conn, week_start, today)
+            next_ctx = week_context(conn, week_start + timedelta(days=7), today)
             upcoming_days = (ctx["days"] + next_ctx["days"])
             # Display shows today plus the next 6 days.
             upcoming_days = [d for d in upcoming_days if d["date"] >= today][:7]
@@ -836,6 +881,7 @@ def create_app() -> FastAPI:
                 request, "settings.html", conn,
                 parents_list=parents(conn), kids=kids(conn),
                 schedule=schedule, base_url=base, kid_colors=KID_COLORS,
+                timezone=db.get_setting(conn, "timezone", "") or "",
             )
         finally:
             conn.close()
@@ -850,6 +896,16 @@ def create_app() -> FastAPI:
             form = await request.form()
             if form.get("household_name"):
                 db.set_setting(conn, "household_name", form["household_name"].strip())
+            if "timezone" in form:
+                tz_name = (form.get("timezone") or "").strip()
+                if not tz_name:
+                    db.set_setting(conn, "timezone", "")
+                else:
+                    try:
+                        ZoneInfo(tz_name)
+                        db.set_setting(conn, "timezone", tz_name)
+                    except (KeyError, ValueError):
+                        pass  # unknown timezone name — keep the old setting
             return RedirectResponse("/settings", status_code=303)
         finally:
             conn.close()
@@ -946,8 +1002,10 @@ def create_app() -> FastAPI:
             redirect = guard(request, conn)
             if redirect:
                 return redirect
+            # Only unclaimed accounts can get an invite link; a parent who has
+            # joined manages their own password.
             conn.execute(
-                "UPDATE parents SET invite_token = ? WHERE id = ?",
+                "UPDATE parents SET invite_token = ? WHERE id = ? AND password_hash IS NULL",
                 (security.new_token(16), parent_id),
             )
             conn.commit()
