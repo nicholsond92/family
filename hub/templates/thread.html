@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/messages">← All conversations</a></p>
+<div class="card">
+  <h1>{{ thread['subject'] }}
+    {% if thread['kid_name'] %}<span class="dot" style="background: {{ thread['kid_color'] }}"></span>
+    <span class="muted">{{ thread['kid_name'] }}</span>{% endif %}
+  </h1>
+  {% for m in messages %}
+  <div class="msg">
+    <span class="dot" style="background: {{ m['author_color'] }}"></span>
+    <div>
+      <div class="msghead"><strong>{{ m['author_name'] }}</strong>
+        <span class="muted small">{{ m['created_at'][:16].replace('T', ' ') }}</span></div>
+      <p>{{ m['body'] }}</p>
+    </div>
+  </div>
+  {% endfor %}
+  <form method="post" action="/messages/{{ thread['id'] }}/reply" class="stack">
+    <textarea name="body" rows="2" required placeholder="Reply…"></textarea>
+    <button class="btn" type="submit">Send</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>💬 Messages</h1>
+<p class="muted">Conversations about the kids' schedules, kept in one place.</p>
+
+<div class="card">
+  <h2>New conversation</h2>
+  <form method="post" action="/messages/new" class="stack">
+    <div class="grid2">
+      <label>Subject
+        <input name="subject" required placeholder="Pickup on Thursday">
+      </label>
+      <label>About <span class="muted small">(optional)</span>
+        <select name="kid_id">
+          <option value="">— the kids in general —</option>
+          {% for k in kids %}<option value="{{ k['id'] }}">{{ k['name'] }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <textarea name="body" rows="2" required placeholder="Write a message…"></textarea>
+    <button class="btn primary" type="submit">Start conversation</button>
+  </form>
+</div>
+
+{% if not threads %}<p class="muted">No conversations yet.</p>{% endif %}
+<div class="swaplist">
+  {% for t in threads %}
+  <a class="swaprow" href="/messages/{{ t['id'] }}">
+    <span><strong>{{ t['subject'] }}</strong>
+      {% if t['kid_name'] %}<span class="dot" style="background: {{ t['kid_color'] }}"></span> {{ t['kid_name'] }}{% endif %}
+    </span>
+    <span class="muted small">{{ t['n_messages'] }} message{{ 's' if t['n_messages'] != 1 }}
+      · {{ (t['last_at'] or t['created_at'])[:16].replace('T', ' ') }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

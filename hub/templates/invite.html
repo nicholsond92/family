@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Join {{ household }}{% endblock %}
+{% block content %}
+<div class="card narrow">
+  <h1>Welcome, {{ invitee['name'] }} 👋</h1>
+  <p class="muted">You've been invited to <strong>{{ household }}</strong> — the shared
+  hub for the kids' schedules. Set a password to finish joining.</p>
+  <form method="post" action="/invite/{{ token }}" class="stack">
+    <label>Email (optional)
+      <input name="email" type="email" value="{{ invitee['email'] or '' }}">
+    </label>
+    <label>Choose a password
+      <input name="password" type="password" minlength="4" required autofocus>
+    </label>
+    <button class="btn primary" type="submit">Join {{ household }}</button>
+  </form>
+</div>
+{% endblock %}

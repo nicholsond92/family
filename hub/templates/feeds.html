@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>📡 Calendar feeds &amp; wall display</h1>
+<p class="muted">Nobody has to use this site if they don't want to. Each feed below is a
+standard iCal URL — subscribe from any calendar app and it stays in sync
+automatically (including custody changes from approved swaps).</p>
+
+<div class="card">
+  <h2>Feeds</h2>
+  {% for f in feeds %}
+  <div class="feedrow">
+    <div>
+      <strong>{{ f['name'] }}</strong>
+      <span class="muted small">({{ 'everything' if f['kind'] == 'all' else ('custody only' if f['kind'] == 'custody' else f['kid_name'] ~ ' only') }})</span>
+    </div>
+    <div class="feedurl">
+      <input readonly value="{{ base_url }}/ics/{{ f['token'] }}.ics" onclick="this.select()">
+      <button class="btn" type="button"
+              onclick="navigator.clipboard.writeText(this.previousElementSibling.value); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy', 1500)">Copy</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>How to subscribe</h2>
+  <ul class="howto">
+    <li><strong>Google Calendar:</strong> on a computer, open Google Calendar →
+      next to "Other calendars" click <em>+</em> → <em>From URL</em> → paste the feed
+      URL. Google refreshes subscribed feeds every few hours.</li>
+    <li><strong>Outlook / Microsoft 365:</strong> Calendar → <em>Add calendar</em> →
+      <em>Subscribe from web</em> → paste the URL.</li>
+    <li><strong>iPhone / iCloud:</strong> Settings → Calendar → Accounts →
+      <em>Add Account</em> → <em>Other</em> → <em>Add Subscribed Calendar</em> → paste the
+      URL. (On a Mac: Calendar → File → New Calendar Subscription.)</li>
+  </ul>
+  <p class="notice">⚠️ Anyone with a feed URL can read that calendar — share the links
+  only with family. The hub must be reachable from the internet (HTTPS) for
+  Google/Outlook/iCloud to fetch it.</p>
+</div>
+
+<div class="card">
+  <h2>🖼 Wall display (Skylight-style)</h2>
+  <p>Open this link full-screen on your ApoloSign (or any tablet / smart display
+  with a browser). It shows the next 7 days, who has the kids, and refreshes
+  itself — no login needed on the device.</p>
+  <div class="feedurl">
+    <input readonly value="{{ base_url }}/display?token={{ display_token }}" onclick="this.select()">
+    <button class="btn" type="button"
+            onclick="navigator.clipboard.writeText(this.previousElementSibling.value); this.textContent='Copied!'; setTimeout(() => this.textContent='Copy', 1500)">Copy</button>
+  </div>
+  <p class="muted small">Tip: on an Android-based display, a kiosk browser app
+  (e.g. Fully Kiosk) keeps the page full-screen and always on. You can also
+  <a href="/display?token={{ display_token }}">preview the display here</a>.</p>
+</div>
+{% endblock %}

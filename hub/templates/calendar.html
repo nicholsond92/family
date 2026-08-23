@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="toolbar">
+  <div class="weeknav">
+    <a class="btn" href="/?start={{ prev_week }}">← Prev</a>
+    <a class="btn" href="/">Today</a>
+    <a class="btn" href="/?start={{ next_week }}">Next →</a>
+    <h1>Week of {{ week_start.strftime("%B %-d, %Y") }}</h1>
+  </div>
+  <div>
+    {% if pending_swaps %}
+    <a class="btn warn" href="/swaps">⇄ {{ pending_swaps }} pending swap{{ 's' if pending_swaps != 1 }}</a>
+    {% endif %}
+    <a class="btn primary" href="/events/new?date_={{ week_start.isoformat() }}">+ Add event</a>
+  </div>
+</div>
+
+{% if not schedule %}
+<p class="notice">No custody schedule set yet — <a href="/settings">set one up in Settings</a>
+to see who has the kids each day.</p>
+{% endif %}
+
+<div class="week">
+  {% for day in days %}
+  <div class="daycol {% if day.is_today %}today{% endif %}">
+    <div class="dayhead">
+      <span class="dayname">{{ day.date.strftime("%a") }}</span>
+      <span class="daynum">{{ day.date.strftime("%-d") }}</span>
+    </div>
+    {% if day.custodian %}
+    <div class="custody" style="--pcolor: {{ day.custodian['color'] }}">
+      🏠 {{ day.custodian['name'] }}{% if day.has_override %} <span title="Changed by an approved swap">⇄</span>{% endif %}
+    </div>
+    {% endif %}
+    <div class="dayevents">
+      {% for ev in day.events %}
+      <a class="event cat-{{ ev.category }}" href="/events/{{ ev.id }}/edit">
+        <span class="evtime">{% if ev.all_day %}All day{% else %}{{ ev.start_time | fmt_time }}{% endif %}</span>
+        <span class="evtitle">{{ ev.title }}</span>
+        {% if ev.kids %}
+        <span class="evkids">
+          {% for k in ev.kids %}<span class="dot" title="{{ k['name'] }}" style="background: {{ k['color'] }}"></span>{% endfor %}
+        </span>
+        {% endif %}
+      </a>
+      {% endfor %}
+      <a class="addday" href="/events/new?date_={{ day.iso }}">+</a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="legend">
+  {% for k in kids %}
+  <span class="legenditem"><span class="dot" style="background: {{ k['color'] }}"></span>{{ k['name'] }}</span>
+  {% endfor %}
+  <span class="legenditem"><span class="chip cat-school">school</span></span>
+  <span class="legenditem"><span class="chip cat-activity">activity</span></span>
+  <span class="legenditem"><span class="chip cat-medical">medical</span></span>
+  <span class="legenditem"><span class="chip cat-other">other</span></span>
+</div>
+{% endblock %}

@@ -4,3 +4,10 @@ msal>=1.28.0
 python-dateutil>=2.8.0
 python-dotenv>=1.0.0
 lxml>=5.0.0
+
+# Family Hub web app
+fastapi>=0.110
+uvicorn>=0.29
+jinja2>=3.1
+python-multipart>=0.0.9
+itsdangerous>=2.1

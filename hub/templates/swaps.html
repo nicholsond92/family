@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>⇄ Custody swaps</h1>
+<p class="muted">Ask to switch custody days — for vacations, work trips, special
+occasions. When the other parent approves, the schedule and every subscribed
+calendar update automatically.</p>
+
+<div class="card">
+  <h2>Request a swap</h2>
+  <form method="post" action="/swaps/new" class="stack">
+    <div class="grid3">
+      <label>Who should have the kids?
+        <select name="range1_parent">
+          {% for p in parents %}
+          <option value="{{ p['id'] }}" {% if parent and p['id'] == parent['id'] %}selected{% endif %}>{{ p['name'] }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>From
+        <input name="range1_start" type="date" required>
+      </label>
+      <label>Through
+        <input name="range1_end" type="date" required>
+      </label>
+    </div>
+    <details>
+      <summary>Offer days in return (optional — makes it a true trade)</summary>
+      <div class="grid2">
+        <label>From <input name="range2_start" type="date"></label>
+        <label>Through <input name="range2_end" type="date"></label>
+      </div>
+      <p class="muted small">These days go to the other parent.</p>
+    </details>
+    <label>Reason / note
+      <textarea name="reason" rows="2" placeholder="Taking the kids to the lake for the long weekend — happy to trade the following weekend."></textarea>
+    </label>
+    <button class="btn primary" type="submit">Send request</button>
+  </form>
+</div>
+
+<h2>Requests</h2>
+{% if not swaps %}<p class="muted">No swap requests yet.</p>{% endif %}
+<div class="swaplist">
+  {% for s in swaps %}
+  <a class="swaprow status-{{ s['status'] }}" href="/swaps/{{ s['id'] }}">
+    <span class="badge {{ s['status'] }}">{{ s['status'] }}</span>
+    <span>
+      <strong>{{ parent_by_id[s['range1_parent']]['name'] }}</strong> has the kids
+      {{ s['range1_start'] | fmt_date }} – {{ s['range1_end'] | fmt_date }}
+      {% if s['range2_start'] %} · trade back {{ s['range2_start'] | fmt_date }} – {{ s['range2_end'] | fmt_date }}{% endif %}
+    </span>
+    <span class="muted small">asked by {{ parent_by_id[s['created_by']]['name'] }}</span>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

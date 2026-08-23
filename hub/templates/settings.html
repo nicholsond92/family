@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>⚙️ Settings</h1>
+
+<div class="card">
+  <h2>Household</h2>
+  <form method="post" action="/settings/household" class="row">
+    <input name="household_name" value="{{ household }}">
+    <button class="btn" type="submit">Save</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Parents</h2>
+  {% for p in parents_list %}
+  <div class="feedrow">
+    <div><span class="dot" style="background: {{ p['color'] }}"></span>
+      <strong>{{ p['name'] }}</strong>
+      <span class="muted small">{{ p['email'] or '' }}</span>
+      {% if not p['password_hash'] %}<span class="badge pending">hasn't joined yet</span>{% endif %}
+    </div>
+    <div class="row">
+      {% if p['invite_token'] %}
+      <input readonly value="{{ base_url }}/invite/{{ p['invite_token'] }}" onclick="this.select()">
+      <span class="muted small">← send them this invite link</span>
+      {% elif p['id'] != parent['id'] %}
+      <form method="post" action="/settings/parents/{{ p['id'] }}/invite">
+        <button class="btn" type="submit">New invite link</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  <h3>Change my password</h3>
+  <form method="post" action="/settings/password" class="row">
+    <input name="new_password" type="password" minlength="4" placeholder="New password" required>
+    <button class="btn" type="submit">Update</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Kids</h2>
+  {% for k in kids %}
+  <div class="feedrow">
+    <div><span class="dot" style="background: {{ k['color'] }}"></span> <strong>{{ k['name'] }}</strong></div>
+    <form method="post" action="/settings/kids/{{ k['id'] }}/delete"
+          onsubmit="return confirm('Remove {{ k['name'] }} and their feed?')">
+      <button class="btn danger" type="submit">Remove</button>
+    </form>
+  </div>
+  {% endfor %}
+  <form method="post" action="/settings/kids/add" class="row">
+    <input name="name" placeholder="Kid's name" required>
+    <select name="color">
+      {% for c in kid_colors %}<option value="{{ c }}" style="background: {{ c }}">{{ c }}</option>{% endfor %}
+    </select>
+    <button class="btn" type="submit">Add kid</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Custody schedule</h2>
+  {% if schedule %}
+  <p>Current pattern: <strong>{{ patterns[schedule.pattern] }}</strong>,
+    anchored to the week of {{ schedule.anchor_date.strftime("%B %-d, %Y") }},
+    handoff around {{ schedule.handoff_time }}.</p>
+  {% else %}
+  <p class="muted">No custody schedule configured.</p>
+  {% endif %}
+  <form method="post" action="/settings/custody" class="stack">
+    <div class="grid4">
+      <label>Pattern
+        <select name="pattern">
+          {% for key, label in patterns.items() %}
+          <option value="{{ key }}" {% if schedule and schedule.pattern == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Starts with
+        <select name="first_parent">
+          {% for p in parents_list %}<option value="{{ p['id'] }}">{{ p['name'] }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Week starting
+        <input name="anchor_date" type="date"
+               value="{{ schedule.anchor_date.isoformat() if schedule else '' }}" required>
+      </label>
+      <label>Handoff time
+        <input name="handoff_time" type="time"
+               value="{{ schedule.handoff_time if schedule else '18:00' }}">
+      </label>
+    </div>
+    <details>
+      <summary>Custom weekly pattern (only if "Custom weekly" selected)</summary>
+      <div class="grid4">
+        {% for day in ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] %}
+        <label>{{ day }}
+          <select name="weekday{{ loop.index0 }}">
+            {% for p in parents_list %}<option value="{{ p['id'] }}">{{ p['name'] }}</option>{% endfor %}
+          </select>
+        </label>
+        {% endfor %}
+      </div>
+    </details>
+    <p class="muted small">Changing the pattern doesn't touch days already changed by
+    approved swaps — those stay as agreed.</p>
+    <button class="btn primary" type="submit">Save custody schedule</button>
+  </form>
+</div>
+{% endblock %}

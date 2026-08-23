@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Set up your Family Hub{% endblock %}
+{% block content %}
+<div class="card narrow-wide">
+  <h1>🏠 Set up your Family Hub</h1>
+  <p class="muted">One central place for custody, school, and activity schedules.
+  Anyone can follow along from Google, Outlook, or iCloud calendar — no app required.</p>
+
+  <form method="post" action="/setup" class="stack">
+    <h2>Household</h2>
+    <label>Household / family name
+      <input name="household_name" placeholder="The Nicholsons" required>
+    </label>
+
+    <h2>Parents</h2>
+    <div class="grid2">
+      <fieldset>
+        <legend>You</legend>
+        <label>Name <input name="parent1_name" required></label>
+        <label>Email <input name="parent1_email" type="email"></label>
+        <label>Password <input name="parent1_password" type="password" minlength="4" required></label>
+      </fieldset>
+      <fieldset>
+        <legend>Co-parent</legend>
+        <label>Name <input name="parent2_name" required></label>
+        <label>Email <input name="parent2_email" type="email"></label>
+        <p class="muted small">They'll get an invite link (shown in Settings) to set
+        their own password.</p>
+      </fieldset>
+    </div>
+
+    <h2>Kids</h2>
+    <div class="grid3">
+      {% for i in range(1, 7) %}
+      <label>Kid {{ i }}{% if i > 1 %} (optional){% endif %}
+        <input name="kid{{ i }}_name" {% if i == 1 %}required{% endif %}>
+      </label>
+      {% endfor %}
+    </div>
+
+    <h2>Custody schedule <span class="muted small">(optional — set up later in Settings)</span></h2>
+    <label>Pattern
+      <select name="pattern">
+        <option value="">— skip for now —</option>
+        {% for key, label in patterns.items() %}
+        <option value="{{ key }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="grid3">
+      <label>Who has the kids first?
+        <select name="first_parent">
+          <option value="1">Me</option>
+          <option value="2">Co-parent</option>
+        </select>
+      </label>
+      <label>Week starting (any date in that week)
+        <input name="anchor_date" type="date">
+      </label>
+      <label>Handoff time
+        <input name="handoff_time" type="time" value="18:00">
+      </label>
+    </div>
+    <details>
+      <summary>Custom weekly pattern (only if "Custom weekly" selected)</summary>
+      <div class="grid4">
+        {% for day in ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] %}
+        <label>{{ day }}
+          <select name="weekday{{ loop.index0 }}">
+            <option value="1">Me</option>
+            <option value="2">Co-parent</option>
+          </select>
+        </label>
+        {% endfor %}
+      </div>
+    </details>
+
+    <button class="btn primary big" type="submit">Create the hub</button>
+  </form>
+</div>
+{% endblock %}
