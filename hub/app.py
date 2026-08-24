@@ -30,6 +30,18 @@ KID_COLORS = ["#e63946", "#f4a261", "#2a9d8f", "#457b9d", "#8d5bd4", "#d81b8c", 
 PARENT_COLORS = ["#3a86ff", "#e63946", "#2a9d8f", "#8d5bd4", "#f4a261", "#d81b8c"]
 CATEGORIES = ["school", "activity", "medical", "other"]
 
+# Open-Meteo WMO weather codes -> short display words.
+WEATHER_WORDS = {
+    0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Cloudy",
+    45: "Foggy", 48: "Foggy",
+    51: "Drizzle", 53: "Drizzle", 55: "Drizzle", 56: "Drizzle", 57: "Drizzle",
+    61: "Rain", 63: "Rain", 65: "Rain", 66: "Rain", 67: "Rain",
+    71: "Snow", 73: "Snow", 75: "Snow", 77: "Snow",
+    80: "Showers", 81: "Showers", 82: "Showers",
+    85: "Snow", 86: "Snow",
+    95: "Storms", 96: "Storms", 99: "Storms",
+}
+
 
 def _session_secret() -> str:
     try:
@@ -195,13 +207,22 @@ def create_app() -> FastAPI:
         ]
 
     def circle_kid_labels(conn) -> dict[int, str]:
-        """circle id -> 'Emma & Ava' (that circle's kids)."""
+        """circle id -> 'Emma & Ava' (that circle's kids, first names)."""
         names: dict[int, list[str]] = {}
         for row in conn.execute(
             "SELECT circle_id, name FROM kids WHERE circle_id IS NOT NULL ORDER BY name"
         ):
-            names.setdefault(row["circle_id"], []).append(row["name"])
+            names.setdefault(row["circle_id"], []).append(row["name"].split()[0])
         return {cid: " & ".join(ns) for cid, ns in names.items()}
+
+    def circle_kid_rows(conn) -> dict[int, list]:
+        """circle id -> kid rows, for color dots next to custody pills."""
+        out: dict[int, list] = {}
+        for row in conn.execute(
+            "SELECT * FROM kids WHERE circle_id IS NOT NULL ORDER BY name"
+        ):
+            out.setdefault(row["circle_id"], []).append(row)
+        return out
 
     def current_parent(request: Request, conn):
         pid = request.session.get("parent_id")
@@ -327,6 +348,39 @@ def create_app() -> FastAPI:
     templates.env.filters["fmt_date"] = lambda d: (
         date.fromisoformat(d) if isinstance(d, str) else d
     ).strftime("%a %b %-d")
+    templates.env.filters["first_name"] = lambda s: (s or "").split()[0] if s else ""
+
+    def fetch_weather(conn):
+        """Current conditions for the wall display via Open-Meteo (no API key).
+        Returns None unless a location is configured; never raises."""
+        lat = db.get_setting(conn, "weather_lat", "")
+        lon = db.get_setting(conn, "weather_lon", "")
+        if not lat or not lon:
+            return None
+        unit = db.get_setting(conn, "weather_unit", "fahrenheit")
+        try:
+            import requests
+
+            resp = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": lat, "longitude": lon,
+                    "current": "temperature_2m,weather_code",
+                    "daily": "temperature_2m_max,temperature_2m_min",
+                    "temperature_unit": unit,
+                    "timezone": "auto", "forecast_days": 1,
+                },
+                timeout=4,
+            )
+            data = resp.json()
+            return {
+                "temp": round(data["current"]["temperature_2m"]),
+                "hi": round(data["daily"]["temperature_2m_max"][0]),
+                "lo": round(data["daily"]["temperature_2m_min"][0]),
+                "cond": WEATHER_WORDS.get(data["current"]["weather_code"], ""),
+            }
+        except Exception:  # noqa: BLE001 — weather is decorative, never break the wall
+            return None
 
     @app.get("/health")
     def health():
@@ -1201,6 +1255,8 @@ def create_app() -> FastAPI:
             return render(
                 request, "display.html", conn,
                 days=upcoming_days, today=today, banners=banners, kids=kids(conn),
+                kids_by_circle=circle_kid_rows(conn),
+                weather=fetch_weather(conn),
             )
         finally:
             conn.close()
@@ -1235,6 +1291,9 @@ def create_app() -> FastAPI:
                 circle_rows=circle_rows, all_circles=circles(conn),
                 base_url=base, kid_colors=KID_COLORS,
                 timezone=db.get_setting(conn, "timezone", "") or "",
+                weather_lat=db.get_setting(conn, "weather_lat", "") or "",
+                weather_lon=db.get_setting(conn, "weather_lon", "") or "",
+                weather_unit=db.get_setting(conn, "weather_unit", "fahrenheit"),
             )
         finally:
             conn.close()
@@ -1259,6 +1318,19 @@ def create_app() -> FastAPI:
                         db.set_setting(conn, "timezone", tz_name)
                     except (KeyError, ValueError):
                         pass  # unknown timezone name — keep the old setting
+            if "weather_lat" in form:
+                lat = (form.get("weather_lat") or "").strip()
+                lon = (form.get("weather_lon") or "").strip()
+                try:
+                    if lat and lon:
+                        float(lat), float(lon)
+                    db.set_setting(conn, "weather_lat", lat)
+                    db.set_setting(conn, "weather_lon", lon)
+                except ValueError:
+                    pass  # not numbers — keep old values
+                unit = form.get("weather_unit") or "fahrenheit"
+                if unit in ("fahrenheit", "celsius"):
+                    db.set_setting(conn, "weather_unit", unit)
             return RedirectResponse("/settings", status_code=303)
         finally:
             conn.close()

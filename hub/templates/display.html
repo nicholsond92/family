@@ -6,7 +6,7 @@
   <title>{{ household }} — display</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/display.css">
 </head>
 <body class="displaybody">
@@ -15,33 +15,52 @@
       <div class="dhousehold">{{ household }}</div>
       <div class="ddate">{{ today.strftime("%A, %B %-d") }}</div>
     </div>
-    <div class="dclock" id="clock">--:--</div>
+    <div class="dheadright">
+      {% if weather %}
+      <div class="dweather">
+        <div class="dtemp">{{ weather.temp }}°</div>
+        <div class="dwmeta">
+          {% if weather.cond %}<span>{{ weather.cond }}</span>{% endif %}
+          <span>H {{ weather.hi }}° · L {{ weather.lo }}°</span>
+        </div>
+      </div>
+      {% endif %}
+      <div class="dclock" id="clock">--:--</div>
+    </div>
   </header>
 
-  {% for b in banners %}
-  <div class="dcustody" style="--pcolor: {{ b.custodian['color'] }}">
-    <strong>{{ b.label }}</strong> with <strong>{{ b.custodian['name'] }}</strong>
-    {% if b.run_end != today %}through {{ b.run_end.strftime("%A") }}{% else %}today — handoff around {{ b.handoff }}{% endif %}
+  <div class="dbanners">
+    {% for b in banners %}
+    <div class="dcustody" style="--pcolor: {{ b.custodian['color'] }}; background: {{ b.custodian['color'] }}1c">
+      <span class="dcdot" style="background: {{ b.custodian['color'] }}"></span>
+      <strong>{{ b.label }}</strong>&nbsp;{{ 'are' if '&' in b.label else 'is' }} with
+      <strong>&nbsp;{{ b.custodian['name'] | first_name }}</strong>
+      {% if b.run_end != today %}&nbsp;through {{ b.run_end.strftime("%A") }}{% else %}&nbsp;today · handoff around {{ b.handoff | fmt_time }}{% endif %}
+    </div>
+    {% endfor %}
   </div>
-  {% endfor %}
 
   <div class="dweek">
     {% for day in days %}
     <div class="dday {% if day.is_today %}dtoday{% endif %}">
       <div class="ddayhead">
-        <span>{{ "Today" if day.is_today else day.date.strftime("%a") }}</span>
+        <span class="ddayname">{{ "Today" if day.is_today else day.date.strftime("%a") }}</span>
         <span class="ddaynum">{{ day.date.strftime("%-d") }}</span>
       </div>
       {% for c in day.custody %}
       {% if c.custodian %}
-      <div class="ddaycustody" style="--pcolor: {{ c.custodian['color'] }}">
-        {{ c.label }}: {{ c.custodian['name'] }}{% if c.has_override %} ⇄{% endif %}
+      <div class="ddaycustody" style="background: {{ c.custodian['color'] }}1c">
+        <span class="dkiddots">
+          {% for k in kids_by_circle.get(c.circle_id, []) %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}
+        </span>
+        {{ c.custodian['name'] | first_name }}{% if c.has_override %} ⇄{% endif %}
       </div>
       {% endif %}
       {% endfor %}
       <div class="ddayevents">
         {% for ev in day.events %}
-        <div class="devent cat-{{ ev.category if ev.visible else 'other' }}">
+        {% set tint = ev.kids[0]['color'] if ev.kids else '#a8a29e' %}
+        <div class="devent" style="background: {{ tint }}1a">
           <div class="devtime">{% if ev.all_day %}All day{% else %}{{ ev.start_time | fmt_time }}{% endif %}</div>
           <div class="devtitle">{% if ev.visible %}{{ ev.title }}{% else %}Busy{% endif %}</div>
           {% if ev.kids %}
@@ -51,7 +70,7 @@
           {% endif %}
         </div>
         {% else %}
-        <div class="dnothing">—</div>
+        <div class="dnothing">No plans</div>
         {% endfor %}
       </div>
     </div>
@@ -60,7 +79,9 @@
 
   <footer class="dfooter">
     {% for k in kids %}
-    <span class="dlegend"><span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] }}</span>
+    <span class="dlegend" style="background: {{ k['color'] }}1a">
+      <span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}
+    </span>
     {% endfor %}
   </footer>
 

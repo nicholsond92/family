@@ -212,17 +212,18 @@ def generate_feed(conn, feed) -> str:
             "SELECT circle_id FROM kids WHERE id = ?", (feed["kid_id"],)
         ).fetchone()
         kid_circle = row["circle_id"] if row else None
+    # Custody summaries read best with first names: "Emma & Ava with Dylan".
     kids_by_circle: dict[int, list[str]] = {}
     for row in conn.execute(
         "SELECT circle_id, name FROM kids WHERE circle_id IS NOT NULL ORDER BY name"
     ):
-        kids_by_circle.setdefault(row["circle_id"], []).append(row["name"])
+        kids_by_circle.setdefault(row["circle_id"], []).append(row["name"].split()[0])
     for circle_id, schedule in custody.load_schedules(conn).items():
         if kid_circle is not None and circle_id != kid_circle:
             continue
         kid_label = " & ".join(kids_by_circle.get(circle_id, []))
         for block in custody.custody_blocks(conn, circle_id, start, end):
-            pname = parents.get(block["parent_id"], "parent")
+            pname = parents.get(block["parent_id"], "parent").split()[0]
             vevents.append(
                 custody_vevent(circle_id, block, pname, kid_label,
                                schedule["handoff_time"])
