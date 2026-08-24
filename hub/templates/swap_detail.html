@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/swaps">← All swaps</a></p>
+<div class="card">
+  <h1>Swap request <span class="badge {{ swap['status'] }}">{{ swap['status'] }}</span></h1>
+  <p>
+    <strong>{{ parent_by_id[swap['range1_parent']]['name'] }}</strong> has the kids
+    <strong>{{ swap['range1_start'] | fmt_date }} – {{ swap['range1_end'] | fmt_date }}</strong>
+  </p>
+  {% if swap['range2_start'] %}
+  <p>
+    In return, <strong>{{ parent_by_id[swap['range2_parent']]['name'] }}</strong> has the kids
+    <strong>{{ swap['range2_start'] | fmt_date }} – {{ swap['range2_end'] | fmt_date }}</strong>
+  </p>
+  {% endif %}
+  <p class="muted small">Requested by {{ parent_by_id[swap['created_by']]['name'] }}
+    on {{ swap['created_at'][:10] }}
+    {% if swap['decided_by'] %} · decided by {{ parent_by_id[swap['decided_by']]['name'] }}{% endif %}
+  </p>
+
+  {% if conflicts %}
+  <p class="notice">⚠️ This request overlaps days already changed by another approved
+  swap ({{ conflicts[:5] | join(', ') }}{% if conflicts | length > 5 %}, …{% endif %}).
+  It can't be approved as-is — cancel this request or undo the conflicting swap first.</p>
+  {% endif %}
+  {% if can_decide %}
+  <form method="post" action="/swaps/{{ swap['id'] }}/decide" class="row">
+    <button class="btn primary" name="decision" value="approved" type="submit">✓ Approve — update the schedule</button>
+    <button class="btn danger" name="decision" value="declined" type="submit">✗ Decline</button>
+  </form>
+  {% elif swap['status'] == 'pending' %}
+  <p class="notice">Waiting for the other parent to approve or decline.</p>
+  {% endif %}
+  {% if can_cancel %}
+  <form method="post" action="/swaps/{{ swap['id'] }}/cancel">
+    <button class="btn" type="submit">Cancel request</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Discussion</h2>
+  {% for m in messages %}
+  <div class="msg">
+    <span class="dot" style="background: {{ m['author_color'] }}"></span>
+    <div>
+      <div class="msghead"><strong>{{ m['author_name'] }}</strong>
+        <span class="muted small">{{ m['created_at'][:16].replace('T', ' ') }}</span></div>
+      <p>{{ m['body'] }}</p>
+    </div>
+  </div>
+  {% else %}
+  <p class="muted">No messages yet.</p>
+  {% endfor %}
+  <form method="post" action="/swaps/{{ swap['id'] }}/reply" class="stack">
+    <textarea name="body" rows="2" required placeholder="Reply…"></textarea>
+    <button class="btn" type="submit">Send</button>
+  </form>
+</div>
+{% endblock %}

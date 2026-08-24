@@ -1,0 +1,21 @@
+# Fly.io config — `fly launch` will offer to use this file.
+# Create the volume first: fly volumes create hub_data --size 1
+app = "family-hub"
+
+[build]
+
+[env]
+  HUB_DB = "/data/hub.db"
+
+[mounts]
+  source = "hub_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # Keep one machine always on so the wall display and calendar
+  # feed fetches never hit a cold start.
+  min_machines_running = 1

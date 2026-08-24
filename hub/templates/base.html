@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ household }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/hub.css">
+</head>
+<body>
+{% if parent %}
+<nav class="topnav">
+  <div class="brand">🏠 {{ household }}</div>
+  <div class="navlinks">
+    <a href="/">Calendar</a>
+    <a href="/swaps">Swaps</a>
+    <a href="/messages">Messages</a>
+    <a href="/feeds">Feeds &amp; Display</a>
+    <a href="/settings">Settings</a>
+  </div>
+  <form method="post" action="/logout" class="navuser">
+    <span class="dot" style="background: {{ parent['color'] }}"></span>
+    <span>{{ parent['name'] }}</span>
+    <button class="linklike" type="submit">Log out</button>
+  </form>
+</nav>
+{% endif %}
+<main class="container">
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

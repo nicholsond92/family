@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ household }} — display</title>
+  <link rel="stylesheet" href="/static/display.css">
+</head>
+<body class="displaybody">
+  <header class="dheader">
+    <div>
+      <div class="dhousehold">🏠 {{ household }}</div>
+      <div class="ddate">{{ today.strftime("%A, %B %-d") }}</div>
+    </div>
+    <div class="dclock" id="clock">--:--</div>
+  </header>
+
+  {% if custodian_today %}
+  <div class="dcustody" style="--pcolor: {{ custodian_today['color'] }}">
+    Kids are with <strong>{{ custodian_today['name'] }}</strong>
+    {% if run_end != today %}through {{ run_end.strftime("%A") }}{% else %}today — handoff around {{ handoff }}{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="dweek">
+    {% for day in days %}
+    <div class="dday {% if day.is_today %}dtoday{% endif %}">
+      <div class="ddayhead">
+        <span>{{ "Today" if day.is_today else day.date.strftime("%a") }}</span>
+        <span class="ddaynum">{{ day.date.strftime("%-d") }}</span>
+      </div>
+      {% if day.custodian %}
+      <div class="ddaycustody" style="--pcolor: {{ day.custodian['color'] }}">
+        {{ day.custodian['name'] }}{% if day.has_override %} ⇄{% endif %}
+      </div>
+      {% endif %}
+      <div class="ddayevents">
+        {% for ev in day.events %}
+        <div class="devent cat-{{ ev.category }}">
+          <div class="devtime">{% if ev.all_day %}All day{% else %}{{ ev.start_time | fmt_time }}{% endif %}</div>
+          <div class="devtitle">{{ ev.title }}</div>
+          {% if ev.kids %}
+          <div class="devkids">
+            {% for k in ev.kids %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}
+          </div>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="dnothing">—</div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <footer class="dfooter">
+    {% for k in kids %}
+    <span class="dlegend"><span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] }}</span>
+    {% endfor %}
+  </footer>
+
+  <script>
+    function tick() {
+      const now = new Date();
+      let h = now.getHours() % 12 || 12;
+      const m = String(now.getMinutes()).padStart(2, "0");
+      document.getElementById("clock").textContent = h + ":" + m;
+    }
+    tick();
+    setInterval(tick, 10000);
+    // Refresh the schedule every 5 minutes (keeps the token in the URL).
+    setTimeout(() => location.reload(), 5 * 60 * 1000);
+  </script>
+</body>
+</html>

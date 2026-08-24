@@ -1,0 +1,10 @@
+.git
+.env
+__pycache__
+*.pyc
+.venv
+venv
+hub.db
+*.db
+token_cache.json
+tests

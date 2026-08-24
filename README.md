@@ -1,3 +1,117 @@
+# Family Hub
+
+A self-hosted central hub for the family's schedules: custody, school,
+extracurriculars — with calendar feeds anyone can follow from Google, Outlook,
+or iCloud, schedule messaging between co-parents, custody swap requests, and a
+Skylight-style wall-display mode for a smart display (e.g. ApoloSign).
+
+This repo contains two pieces:
+
+1. **Family Hub web app** (`hub/`) — the schedule hub (below)
+2. **FastDirect → Outlook sync** (`sync.py` and friends) — the original script
+   that scrapes school emails into an Outlook calendar
+   ([docs further down](#fastdirect--outlook-calendar-sync))
+
+## Family Hub
+
+### Features
+
+- **Custody schedule engine** — alternating weeks, 2-2-3, 2-2-5-5, or a custom
+  weekly pattern, with a handoff time. Every day shows who has the kids.
+- **Events** — school, activities, medical, other; color-coded per kid;
+  optional weekly repeats (e.g. "soccer practice every Tuesday until June").
+- **Use any calendar app** — the hub publishes standard iCal (.ics) feed URLs.
+  Family members who don't want another app just subscribe once from Google
+  Calendar, Outlook, or iPhone/iCloud and stay in sync automatically. There
+  are feeds for everything, custody-only, and one per kid.
+- **Messaging** — conversation threads about the kids' schedules, optionally
+  tagged to a specific kid.
+- **Custody swap requests** — ask to switch days for vacations etc., optionally
+  offering days in return. The other parent approves or declines; on approval
+  the schedule (and every subscribed calendar) updates automatically. Each
+  request has its own discussion thread.
+- **Wall display mode** — a full-screen, dark, large-type week view designed
+  for a wall-mounted smart display (ApoloSign, any Android tablet, a spare
+  iPad). It's a plain web page behind a device token — open it in the
+  display's browser (a kiosk browser app like Fully Kiosk works well), and it
+  refreshes itself every 5 minutes. No login needed on the device.
+
+### Run it
+
+```bash
+pip install -r requirements.txt
+python serve.py            # serves on http://0.0.0.0:8000
+```
+
+Open the site, and the first visit walks you through setup: household name,
+both parents, kids, and the custody pattern. Your co-parent gets an invite
+link (shown in Settings) to set their own password.
+
+Environment variables (all optional): `HUB_HOST`, `HUB_PORT`, `HUB_DB`
+(path to the SQLite database, default `./hub.db`).
+
+### Deploying (making it reachable from anywhere)
+
+For Google/Outlook/iCloud to pull the feeds — and for the wall display and
+your co-parent to reach the hub — it needs to be accessible over HTTPS from
+the internet. Storage is pluggable: **SQLite** (default, needs a disk) or
+**Postgres** via the `HUB_DATABASE_URL` environment variable (required on
+serverless hosts, which have no persistent disk). Tables are created
+automatically on first request — no migrations to run.
+
+#### Vercel + Supabase (serverless)
+
+1. **Vercel**: import this GitHub repo (the included `vercel.json` and
+   `api/index.py` configure the Python function).
+2. **Connect Supabase**: in the Vercel project, Storage → Connect Store →
+   Supabase (or install the Supabase integration from the Vercel
+   Marketplace). This creates/links the database and injects `POSTGRES_URL`
+   automatically — the app picks it up, no manual connection string needed.
+3. Deploy. Open the Vercel URL and run the setup wizard.
+
+Prefer wiring it by hand (or an existing Supabase project)? Set
+`HUB_DATABASE_URL` to the **Transaction pooler** connection string
+(Supabase → Connect → Transaction pooler, port 6543); it takes precedence
+over `POSTGRES_URL`.
+
+#### Container platforms (SQLite on a volume)
+
+The repo also ships a `Dockerfile`; mount a volume at `/data` so the SQLite
+database (`HUB_DB=/data/hub.db`) survives redeploys:
+
+- **Railway**: Deploy from GitHub repo → add a **Volume** at `/data` →
+  Generate Domain. (`PORT` is injected automatically.)
+- **Render**: New → **Blueprint** → this repo; `render.yaml` sets up the
+  service and persistent disk (needs the Starter plan).
+- **Fly.io**: `fly launch` (uses `fly.toml`), `fly volumes create hub_data
+  --size 1`, `fly deploy`.
+- **Any VPS / home server**:
+  `docker build -t family-hub . && docker run -d -p 8000:8000 -v hub-data:/data family-hub`
+  behind Caddy or a Cloudflare Tunnel for HTTPS. (These platforms can also
+  use Supabase instead — just set `HUB_DATABASE_URL`.)
+
+Feed URLs contain unguessable tokens; share them only with family.
+
+Note: Google Calendar refreshes subscribed iCal feeds on its own schedule
+(typically every few hours up to ~a day) — that's a Google-side limit common
+to all iCal feeds.
+
+### Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests/
+```
+
+### Roadmap ideas
+
+- Point the FastDirect sync at the hub (create hub events instead of Outlook
+  events) so school messages land on everyone's calendars automatically.
+- Push/email notifications for new messages and swap requests.
+- Weather on the wall display.
+
+---
+
 # FastDirect → Outlook Calendar Sync
 
 Automatically reads school notification emails from FastDirect, scrapes full

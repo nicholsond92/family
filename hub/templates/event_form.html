@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card narrow-wide">
+  <h1>{% if event %}Edit event{% else %}Add event{% endif %}</h1>
+  <form method="post"
+        action="{% if event %}/events/{{ event['id'] }}/edit{% else %}/events/new{% endif %}"
+        class="stack">
+    <label>Title
+      <input name="title" required value="{{ event['title'] if event else '' }}"
+             placeholder="Soccer practice">
+    </label>
+    <div class="grid3">
+      <label>Category
+        <select name="category">
+          {% for c in categories %}
+          <option value="{{ c }}" {% if event and event['category'] == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Date
+        <input name="date" type="date" required
+               value="{{ event['date'] if event else default_date }}">
+      </label>
+      <label class="checkline">All day
+        <input name="all_day" type="checkbox" {% if event and event['all_day'] %}checked{% endif %}>
+      </label>
+    </div>
+    <div class="grid3">
+      <label>Start time
+        <input name="start_time" type="time" value="{{ event['start_time'] or '' if event else '' }}">
+      </label>
+      <label>End time
+        <input name="end_time" type="time" value="{{ event['end_time'] or '' if event else '' }}">
+      </label>
+      {% if not event %}
+      <label>Repeat weekly until <span class="muted small">(optional)</span>
+        <input name="repeat_until" type="date">
+      </label>
+      {% endif %}
+    </div>
+    <label>Location
+      <input name="location" value="{{ event['location'] if event else '' }}">
+    </label>
+    <label>Notes
+      <textarea name="notes" rows="3">{{ event['notes'] if event else '' }}</textarea>
+    </label>
+    <fieldset>
+      <legend>Kids</legend>
+      <div class="kidchecks">
+        {% for k in kids %}
+        <label class="checkline">
+          <input type="checkbox" name="kid_ids" value="{{ k['id'] }}"
+                 {% if k['id'] in event_kid_ids %}checked{% endif %}>
+          <span class="dot" style="background: {{ k['color'] }}"></span> {{ k['name'] }}
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <div class="row">
+      <button class="btn primary" type="submit">Save</button>
+      <a class="btn" href="/?start={{ event['date'] if event else default_date }}">Cancel</a>
+    </div>
+  </form>
+  {% if event %}
+  <form method="post" action="/events/{{ event['id'] }}/delete" class="row"
+        onsubmit="return confirm('Delete this event?')">
+    <button class="btn danger" name="scope" value="single" type="submit">Delete</button>
+    {% if event['series_id'] %}
+    <button class="btn danger" name="scope" value="series" type="submit"
+            onclick="return confirm('Delete the whole repeating series?')">Delete whole series</button>
+    {% endif %}
+  </form>
+  {% endif %}
+</div>
+{% endblock %}
