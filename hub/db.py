@@ -187,13 +187,43 @@ class PgConnection:
         self.raw.close()
 
 
+def _ipv4_pinned_conninfo(url: str) -> str:
+    """Pin the connection to an IPv4 address via libpq's hostaddr.
+
+    Serverless platforms (notably Vercel) have no outbound IPv6, but database
+    hostnames often resolve to AAAA records first, failing with "Cannot assign
+    requested address". Resolving an A record ourselves and passing hostaddr
+    forces IPv4 while the hostname is still used for TLS verification. Falls
+    back to the plain URL when no IPv4 address can be resolved.
+    """
+    import socket
+
+    from psycopg.conninfo import make_conninfo
+
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        if not host:
+            return url
+        infos = socket.getaddrinfo(
+            host, parts.port or 5432, socket.AF_INET, socket.SOCK_STREAM
+        )
+        if not infos:
+            return url
+        return make_conninfo(url, hostaddr=infos[0][4][0])
+    except (OSError, ValueError):
+        return url
+
+
 def _pg_connect(url: str) -> PgConnection:
     import psycopg
     from psycopg.rows import dict_row
 
     # prepare_threshold=None keeps psycopg compatible with transaction-mode
     # poolers (Supabase's pooler / pgbouncer), which serverless deploys use.
-    raw = psycopg.connect(url, row_factory=dict_row, prepare_threshold=None)
+    raw = psycopg.connect(
+        _ipv4_pinned_conninfo(url), row_factory=dict_row, prepare_threshold=None
+    )
     return PgConnection(raw)
 
 

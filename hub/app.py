@@ -65,6 +65,13 @@ def _db_hints(exc_text: str) -> list[str]:
             "(e.g. postgres.abcdefghijk). Copy the full Transaction pooler "
             "string from Supabase → Connect rather than editing it by hand."
         )
+    if "cannot assign requested address" in low:
+        hints.append(
+            "The database address resolved to IPv6, which this platform can't "
+            "reach. The app pins an IPv4 address automatically; if this "
+            "persists, the host may have no IPv4 address — use Supabase's "
+            "pooler hostname (aws-…pooler.supabase.com), which supports IPv4."
+        )
     if any(w in low for w in ("unreachable", "timed out", "timeout", "could not translate")):
         hints.append(
             "Use Supabase's Transaction pooler connection string (port 6543), "
