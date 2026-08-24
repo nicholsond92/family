@@ -325,6 +325,32 @@ def test_household_timezone_setting(env, client):
     conn.close()
 
 
+def test_themes_and_custom_colors(env, client):
+    do_setup(client)
+    conn = db.connect()
+
+    # Kid and adult colors are editable with valid hex; junk is ignored.
+    client.post("/settings/kids/1/color", data={"color": "#123abc"})
+    assert conn.execute("SELECT color FROM kids WHERE id = 1").fetchone()["color"] == "#123abc"
+    client.post("/settings/kids/1/color", data={"color": "red"})
+    assert conn.execute("SELECT color FROM kids WHERE id = 1").fetchone()["color"] == "#123abc"
+    client.post("/settings/my-color", data={"color": "#00aa77"})
+    assert conn.execute(
+        "SELECT color FROM parents WHERE name = 'Dylan'"
+    ).fetchone()["color"] == "#00aa77"
+
+    # Per-adult web theme + household display theme.
+    client.post("/settings/appearance", data={"my_theme": "dark", "display_theme": "dark"})
+    assert 'data-theme="dark"' in client.get("/").text
+    token = db.get_setting(conn, "display_token")
+    display = TestClient(env).get(f"/display?token={token}").text
+    assert "theme-dark" in display
+    # Another adult keeps their own (light) theme.
+    sarah = join(env, conn, "Sarah", "sarahpass")
+    assert 'data-theme="light"' in sarah.get("/").text
+    conn.close()
+
+
 def test_unreachable_database_shows_diagnostic_page(monkeypatch):
     monkeypatch.setenv("HUB_DATABASE_URL", "postgresql://u:p@127.0.0.1:59999/nope")
     app = create_app()

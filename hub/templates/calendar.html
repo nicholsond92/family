@@ -31,7 +31,7 @@ to see who has the kids each day.</p>
     {% if c.custodian %}
     <div class="custody" style="--pcolor: {{ c.custodian['color'] }}"
          title="{{ c.label }} with {{ c.custodian['name'] }}">
-      <span class="custkids">{{ c.label }}:</span> {{ c.custodian['name'] }}{% if c.has_override %} <span title="Changed by an approved swap">⇄</span>{% endif %}
+      <span class="custkids">{{ c.label }}:</span> {{ c.custodian['name'] | first_name }}{% if c.has_override %} <span title="Changed by an approved swap">⇄</span>{% endif %}
     </div>
     {% endif %}
     {% endfor %}

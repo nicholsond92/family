@@ -9,7 +9,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/display.css">
 </head>
-<body class="displaybody">
+<body class="displaybody{% if display_theme == 'dark' %} theme-dark{% endif %}">
+{% set ta = '38' if display_theme == 'dark' else '1c' %}
   <header class="dheader">
     <div>
       <div class="dhousehold">{{ household }}</div>
@@ -31,7 +32,7 @@
 
   <div class="dbanners">
     {% for b in banners %}
-    <div class="dcustody" style="--pcolor: {{ b.custodian['color'] }}; background: {{ b.custodian['color'] }}1c">
+    <div class="dcustody" style="--pcolor: {{ b.custodian['color'] }}; background: {{ b.custodian['color'] }}{{ ta }}">
       <span class="dcdot" style="background: {{ b.custodian['color'] }}"></span>
       <strong>{{ b.label }}</strong>&nbsp;{{ 'are' if '&' in b.label else 'is' }} with
       <strong>&nbsp;{{ b.custodian['name'] | first_name }}</strong>
@@ -49,7 +50,7 @@
       </div>
       {% for c in day.custody %}
       {% if c.custodian %}
-      <div class="ddaycustody" style="background: {{ c.custodian['color'] }}1c">
+      <div class="ddaycustody" style="background: {{ c.custodian['color'] }}{{ ta }}">
         <span class="dkiddots">
           {% for k in kids_by_circle.get(c.circle_id, []) %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}
         </span>
@@ -60,7 +61,7 @@
       <div class="ddayevents">
         {% for ev in day.events %}
         {% set tint = ev.kids[0]['color'] if ev.kids else '#a8a29e' %}
-        <div class="devent" style="background: {{ tint }}1a">
+        <div class="devent" style="background: {{ tint }}{{ ta }}">
           <div class="devtime">{% if ev.all_day %}All day{% else %}{{ ev.start_time | fmt_time }}{% endif %}</div>
           <div class="devtitle">{% if ev.visible %}{{ ev.title }}{% else %}Busy{% endif %}</div>
           {% if ev.kids %}
@@ -79,7 +80,7 @@
 
   <footer class="dfooter">
     {% for k in kids %}
-    <span class="dlegend" style="background: {{ k['color'] }}1a">
+    <span class="dlegend" style="background: {{ k['color'] }}{{ ta }}">
       <span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}
     </span>
     {% endfor %}

@@ -33,6 +33,26 @@
 </div>
 
 <div class="card">
+  <h2>Appearance</h2>
+  <form method="post" action="/settings/appearance" class="row">
+    <label>My theme
+      <select name="my_theme">
+        <option value="light" {% if my_theme == "light" %}selected{% endif %}>Light</option>
+        <option value="dark" {% if my_theme == "dark" %}selected{% endif %}>Dark</option>
+      </select>
+    </label>
+    <label>Wall display theme
+      <select name="display_theme">
+        <option value="warm" {% if display_theme == "warm" %}selected{% endif %}>Warm light</option>
+        <option value="dark" {% if display_theme == "dark" %}selected{% endif %}>Dark</option>
+      </select>
+    </label>
+    <button class="btn" type="submit">Save</button>
+  </form>
+  <p class="muted small">Your theme is just for you — every adult picks their own.</p>
+</div>
+
+<div class="card">
   <h2>Adults</h2>
   <p class="muted small" style="margin:0 0 0.5rem">Invite links are never sent
   automatically — share one only when you're ready. (Tip: you can open a link in a
@@ -46,6 +66,12 @@
       {% if not p['password_hash'] %}<span class="badge pending">hasn't joined yet</span>{% endif %}
     </div>
     <div class="row">
+      {% if p['id'] == parent['id'] %}
+      <form method="post" action="/settings/my-color" class="row" style="margin:0">
+        <input type="color" name="color" value="{{ p['color'] }}" title="My color">
+        <button class="btn" type="submit">Set color</button>
+      </form>
+      {% endif %}
       {% if p['invite_token'] and not p['password_hash'] %}
       <input readonly value="{{ base_url }}/invite/{{ p['invite_token'] }}" onclick="this.select()">
       <span class="muted small">← send them this invite link</span>
@@ -73,10 +99,16 @@
       <span class="muted small">({{ c.name }})</span>
       {% endif %}{% endfor %}
     </div>
-    <form method="post" action="/settings/kids/{{ k['id'] }}/delete"
-          onsubmit="return confirm('Remove {{ k['name'] }}?')">
-      <button class="btn danger" type="submit">Remove</button>
-    </form>
+    <div class="row" style="margin:0">
+      <form method="post" action="/settings/kids/{{ k['id'] }}/color" class="row" style="margin:0">
+        <input type="color" name="color" value="{{ k['color'] }}" title="{{ k['name'] }}'s color">
+        <button class="btn" type="submit">Set color</button>
+      </form>
+      <form method="post" action="/settings/kids/{{ k['id'] }}/delete"
+            onsubmit="return confirm('Remove {{ k['name'] }}?')">
+        <button class="btn danger" type="submit">Remove</button>
+      </form>
+    </div>
   </div>
   {% endfor %}
   <form method="post" action="/settings/kids/add" class="row">
@@ -84,9 +116,7 @@
     <select name="circle_id" required>
       {% for c in all_circles %}<option value="{{ c['id'] }}">{{ c['name'] }}</option>{% endfor %}
     </select>
-    <select name="color">
-      {% for c in kid_colors %}<option value="{{ c }}" style="background: {{ c }}">{{ c }}</option>{% endfor %}
-    </select>
+    <input type="color" name="color" value="{{ kid_colors[kids | length % (kid_colors | length)] }}" title="Color">
     <button class="btn" type="submit">Add kid</button>
   </form>
 </div>
