@@ -14,6 +14,20 @@
         <input name="timezone" value="{{ timezone }}" placeholder="server default">
       </label>
     </div>
+    <div class="grid3">
+      <label>Weather latitude <span class="muted small">(for the wall display; blank = off)</span>
+        <input name="weather_lat" value="{{ weather_lat }}" placeholder="41.88">
+      </label>
+      <label>Weather longitude
+        <input name="weather_lon" value="{{ weather_lon }}" placeholder="-87.63">
+      </label>
+      <label>Units
+        <select name="weather_unit">
+          <option value="fahrenheit" {% if weather_unit == "fahrenheit" %}selected{% endif %}>Fahrenheit</option>
+          <option value="celsius" {% if weather_unit == "celsius" %}selected{% endif %}>Celsius</option>
+        </select>
+      </label>
+    </div>
     <div><button class="btn" type="submit">Save</button></div>
   </form>
 </div>
