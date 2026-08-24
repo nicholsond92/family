@@ -16,20 +16,28 @@ This repo contains two pieces:
 
 ### Features
 
-- **Custody schedule engine** — alternating weeks, 2-2-3, 2-2-5-5, or a custom
-  weekly pattern, with a handoff time. Every day shows who has the kids.
+- **Built for blended families** — one hub, up to two co-parenting "circles"
+  (e.g. you + your ex with your kids, and your partner + their ex with
+  theirs). Four adults share one household view; each circle manages its own
+  kids.
+- **Custody schedule engine, per circle** — alternating weeks, 2-2-3,
+  2-2-5-5, or a custom weekly pattern, with a handoff time. Every day shows
+  who has which kids.
+- **Privacy** — mark any event Private: that kid's co-parents (and the
+  creator) see full details, everyone else sees the time blocked as "Busy"
+  — on the calendar, in feeds, and on the wall display.
 - **Events** — school, activities, medical, other; color-coded per kid;
   optional weekly repeats (e.g. "soccer practice every Tuesday until June").
-- **Use any calendar app** — the hub publishes standard iCal (.ics) feed URLs.
-  Family members who don't want another app just subscribe once from Google
-  Calendar, Outlook, or iPhone/iCloud and stay in sync automatically. There
-  are feeds for everything, custody-only, and one per kid.
-- **Messaging** — conversation threads about the kids' schedules, optionally
-  tagged to a specific kid.
-- **Custody swap requests** — ask to switch days for vacations etc., optionally
-  offering days in return. The other parent approves or declines; on approval
-  the schedule (and every subscribed calendar) updates automatically. Each
-  request has its own discussion thread.
+- **Use any calendar app** — every adult gets personal iCal (.ics) feed URLs
+  showing the schedule as they're allowed to see it. Subscribe once from
+  Google Calendar, Outlook, or iPhone/iCloud and stay in sync automatically.
+- **Messaging** — each co-parent pair has a private message space, plus a
+  household-wide space for everyone.
+- **Custody swap requests** — ask to switch days for vacations etc.,
+  optionally offering days in return. Only that circle's co-parents can
+  request and approve; on approval the schedule (and every subscribed
+  calendar) updates automatically. Each request has its own co-parents-only
+  discussion thread.
 - **Wall display mode** — a full-screen, dark, large-type week view designed
   for a wall-mounted smart display (ApoloSign, any Android tablet, a spare
   iPad). It's a plain web page behind a device token — open it in the

@@ -21,8 +21,17 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 DEFAULT_DB_PATH = str(Path(__file__).resolve().parent.parent / "hub.db")
 
+SCHEMA_VERSION = "2"
+
 # Schema targets shared by both backends: TEXT dates/times (ISO strings),
 # INTEGER booleans. {ID} expands to each backend's autoincrement PK.
+#
+# v2 model: a household holds several ADULTS (table `parents`) and one or two
+# co-parenting CIRCLES. A circle is a pair of co-parents; each kid belongs to
+# one circle; custody schedules, overrides, and swaps are per-circle. Events
+# can be private (details visible only to the kids' co-parents + creator;
+# everyone else sees a Busy block). Feeds are per-adult so tokens can't leak
+# private details.
 _SCHEMA_TEMPLATE = """
 CREATE TABLE IF NOT EXISTS settings(
   key TEXT PRIMARY KEY,
@@ -38,14 +47,26 @@ CREATE TABLE IF NOT EXISTS parents(
   invite_token TEXT
 );
 
+CREATE TABLE IF NOT EXISTS circles(
+  id {ID},
+  name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS circle_parents(
+  circle_id INTEGER NOT NULL REFERENCES circles(id) ON DELETE CASCADE,
+  parent_id INTEGER NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
+  PRIMARY KEY (circle_id, parent_id)
+);
+
 CREATE TABLE IF NOT EXISTS kids(
   id {ID},
   name TEXT NOT NULL,
-  color TEXT NOT NULL DEFAULT '#2a9d8f'
+  color TEXT NOT NULL DEFAULT '#2a9d8f',
+  circle_id INTEGER REFERENCES circles(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS custody_schedule(
-  id INTEGER PRIMARY KEY CHECK (id = 1),
+  circle_id INTEGER PRIMARY KEY REFERENCES circles(id) ON DELETE CASCADE,
   pattern TEXT NOT NULL,
   anchor_date TEXT NOT NULL,
   cycle TEXT NOT NULL,
@@ -53,10 +74,12 @@ CREATE TABLE IF NOT EXISTS custody_schedule(
 );
 
 CREATE TABLE IF NOT EXISTS custody_overrides(
-  date TEXT PRIMARY KEY,
+  circle_id INTEGER NOT NULL REFERENCES circles(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
   parent_id INTEGER NOT NULL REFERENCES parents(id),
   swap_id INTEGER,
-  note TEXT
+  note TEXT,
+  PRIMARY KEY (circle_id, date)
 );
 
 CREATE TABLE IF NOT EXISTS events(
@@ -69,6 +92,7 @@ CREATE TABLE IF NOT EXISTS events(
   all_day INTEGER NOT NULL DEFAULT 0,
   location TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
+  private INTEGER NOT NULL DEFAULT 0,
   series_id TEXT,
   created_by INTEGER REFERENCES parents(id),
   created_at TEXT NOT NULL
@@ -83,6 +107,7 @@ CREATE TABLE IF NOT EXISTS event_kids(
 
 CREATE TABLE IF NOT EXISTS swaps(
   id {ID},
+  circle_id INTEGER NOT NULL REFERENCES circles(id) ON DELETE CASCADE,
   created_by INTEGER NOT NULL REFERENCES parents(id),
   status TEXT NOT NULL DEFAULT 'pending',
   reason TEXT NOT NULL DEFAULT '',
@@ -101,6 +126,7 @@ CREATE TABLE IF NOT EXISTS swaps(
 CREATE TABLE IF NOT EXISTS threads(
   id {ID},
   subject TEXT NOT NULL,
+  circle_id INTEGER REFERENCES circles(id) ON DELETE CASCADE,
   kid_id INTEGER REFERENCES kids(id) ON DELETE SET NULL,
   swap_id INTEGER,
   created_by INTEGER REFERENCES parents(id),
@@ -120,9 +146,17 @@ CREATE TABLE IF NOT EXISTS feeds(
   token TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
   kind TEXT NOT NULL,
-  kid_id INTEGER REFERENCES kids(id) ON DELETE CASCADE
+  kid_id INTEGER REFERENCES kids(id) ON DELETE CASCADE,
+  owner_parent_id INTEGER REFERENCES parents(id) ON DELETE CASCADE
 );
 """
+
+# Dropped (children first) when migrating an empty pre-v2 database.
+_APP_TABLES = [
+    "messages", "threads", "swaps", "custody_overrides", "custody_schedule",
+    "event_kids", "events", "feeds", "kids", "circle_parents", "circles",
+    "parents",
+]
 
 SCHEMA = _SCHEMA_TEMPLATE.format(ID="INTEGER PRIMARY KEY AUTOINCREMENT")
 PG_SCHEMA = _SCHEMA_TEMPLATE.format(
@@ -252,10 +286,44 @@ def connect(path: str | None = None):
 
 
 def init_db(conn) -> None:
-    if getattr(conn, "is_postgres", False):
-        conn.executescript(PG_SCHEMA)
-    else:
-        conn.executescript(SCHEMA)
+    schema = PG_SCHEMA if getattr(conn, "is_postgres", False) else SCHEMA
+    # Settings first, so the schema version can be read on legacy databases.
+    settings_ddl = schema.split(";", 1)[0] + ";"
+    conn.executescript(settings_ddl)
+    conn.commit()
+    version = get_setting(conn, "schema_version")
+    if version != SCHEMA_VERSION:
+        _migrate_pre_v2(conn)
+    conn.executescript(schema)
+    conn.commit()
+    if version != SCHEMA_VERSION:
+        set_setting(conn, "schema_version", SCHEMA_VERSION)
+
+
+def _table_empty_or_missing(conn, table: str) -> bool:
+    try:
+        row = conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()
+        return row["n"] == 0
+    except Exception:  # noqa: BLE001 — table doesn't exist
+        if getattr(conn, "is_postgres", False):
+            conn.raw.rollback()
+        return True
+
+
+def _migrate_pre_v2(conn) -> None:
+    """Upgrade a pre-v2 database.
+
+    The v1 -> v2 model change (co-parent circles) restructures most tables.
+    A v1 database that was never set up (no parents) is simply rebuilt;
+    settings (session secret etc.) are preserved. A v1 database WITH data is
+    left untouched so nothing is destroyed — the schema create below will
+    surface errors that make the situation visible instead of silently
+    corrupting it.
+    """
+    if not _table_empty_or_missing(conn, "parents"):
+        return
+    for table in _APP_TABLES:
+        conn.execute(f"DROP TABLE IF EXISTS {table}")
     conn.commit()
 
 

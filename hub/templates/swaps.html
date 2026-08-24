@@ -2,17 +2,29 @@
 {% block content %}
 <h1>⇄ Custody swaps</h1>
 <p class="muted">Ask to switch custody days — for vacations, work trips, special
-occasions. When the other parent approves, the schedule and every subscribed
-calendar update automatically.</p>
+occasions. Only a circle's two co-parents can request and approve swaps for
+their kids; when approved, the schedule and every subscribed calendar update
+automatically.</p>
 
+{% if my_circles %}
 <div class="card">
   <h2>Request a swap</h2>
   <form method="post" action="/swaps/new" class="stack">
-    <div class="grid3">
-      <label>Who should have the kids?
+    <div class="grid4">
+      <label>Which kids?
+        <select name="circle_id" id="swap-circle">
+          {% for c in my_circles %}
+          <option value="{{ c.id }}">{{ c.label or ('Circle ' ~ c.id) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Who should have them?
         <select name="range1_parent">
-          {% for p in parents %}
-          <option value="{{ p['id'] }}" {% if parent and p['id'] == parent['id'] %}selected{% endif %}>{{ p['name'] }}</option>
+          {% for c in my_circles %}
+          {% for p in c.members %}
+          <option value="{{ p['id'] }}" data-circle="{{ c.id }}"
+                  {% if parent and p['id'] == parent['id'] %}selected{% endif %}>{{ p['name'] }}{% if my_circles | length > 1 %} ({{ c.label }}){% endif %}</option>
+          {% endfor %}
           {% endfor %}
         </select>
       </label>
@@ -29,7 +41,7 @@ calendar update automatically.</p>
         <label>From <input name="range2_start" type="date"></label>
         <label>Through <input name="range2_end" type="date"></label>
       </div>
-      <p class="muted small">These days go to the other parent.</p>
+      <p class="muted small">These days go to the other co-parent in the circle.</p>
     </details>
     <label>Reason / note
       <textarea name="reason" rows="2" placeholder="Taking the kids to the lake for the long weekend — happy to trade the following weekend."></textarea>
@@ -37,6 +49,10 @@ calendar update automatically.</p>
     <button class="btn primary" type="submit">Send request</button>
   </form>
 </div>
+{% else %}
+<p class="notice">You're not a co-parent in any circle, so you can't request
+swaps — but you can see the agreed schedule on the calendar.</p>
+{% endif %}
 
 <h2>Requests</h2>
 {% if not swaps %}<p class="muted">No swap requests yet.</p>{% endif %}
@@ -45,7 +61,8 @@ calendar update automatically.</p>
   <a class="swaprow status-{{ s['status'] }}" href="/swaps/{{ s['id'] }}">
     <span class="badge {{ s['status'] }}">{{ s['status'] }}</span>
     <span>
-      <strong>{{ parent_by_id[s['range1_parent']]['name'] }}</strong> has the kids
+      <strong>{{ circle_labels.get(s['circle_id'], 'Kids') }}</strong> —
+      {{ parent_by_id[s['range1_parent']]['name'] }} has them
       {{ s['range1_start'] | fmt_date }} – {{ s['range1_end'] | fmt_date }}
       {% if s['range2_start'] %} · trade back {{ s['range2_start'] | fmt_date }} – {{ s['range2_end'] | fmt_date }}{% endif %}
     </span>

@@ -1,10 +1,11 @@
-"""Custody schedule engine.
+"""Custody schedule engine — one schedule per co-parenting circle.
 
-A custody schedule is stored as a repeating cycle: a list of parent ids, one
-per day, anchored at ``anchor_date`` (day 0 of the cycle). Named patterns
-(alternating weeks, 2-2-3, 2-2-5-5, custom week) compile down to a cycle so
-lookups are uniform. Approved swap requests write rows into
-``custody_overrides``, which take precedence over the base cycle.
+A circle is a pair of co-parents (e.g. you + your ex). Each circle's schedule
+is a repeating cycle: a list of parent ids, one per day, anchored at
+``anchor_date`` (day 0). Named patterns (alternating weeks, 2-2-3, 2-2-5-5,
+custom week) compile down to a cycle so lookups are uniform. Approved swap
+requests write rows into ``custody_overrides`` for their circle, which take
+precedence over the base cycle.
 """
 
 import json
@@ -45,28 +46,41 @@ def monday_of(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 
-def save_schedule(conn, pattern: str, anchor: date, cycle: list[int],
-                  handoff_time: str = "18:00") -> None:
+def save_schedule(conn, circle_id: int, pattern: str, anchor: date,
+                  cycle: list[int], handoff_time: str = "18:00") -> None:
     conn.execute(
-        "INSERT INTO custody_schedule(id, pattern, anchor_date, cycle, handoff_time) "
-        "VALUES(1, ?, ?, ?, ?) "
-        "ON CONFLICT(id) DO UPDATE SET pattern = excluded.pattern, "
+        "INSERT INTO custody_schedule(circle_id, pattern, anchor_date, cycle, handoff_time) "
+        "VALUES(?, ?, ?, ?, ?) "
+        "ON CONFLICT(circle_id) DO UPDATE SET pattern = excluded.pattern, "
         "anchor_date = excluded.anchor_date, cycle = excluded.cycle, "
         "handoff_time = excluded.handoff_time",
-        (pattern, anchor.isoformat(), json.dumps(cycle), handoff_time),
+        (circle_id, pattern, anchor.isoformat(), json.dumps(cycle), handoff_time),
     )
     conn.commit()
 
 
-def load_schedule(conn):
-    row = conn.execute("SELECT * FROM custody_schedule WHERE id = 1").fetchone()
-    if not row:
-        return None
+def _schedule_from_row(row):
     return {
+        "circle_id": row["circle_id"],
         "pattern": row["pattern"],
         "anchor_date": date.fromisoformat(row["anchor_date"]),
         "cycle": json.loads(row["cycle"]),
         "handoff_time": row["handoff_time"],
+    }
+
+
+def load_schedule(conn, circle_id: int):
+    row = conn.execute(
+        "SELECT * FROM custody_schedule WHERE circle_id = ?", (circle_id,)
+    ).fetchone()
+    return _schedule_from_row(row) if row else None
+
+
+def load_schedules(conn) -> dict[int, dict]:
+    """All circles' schedules, keyed by circle id."""
+    return {
+        row["circle_id"]: _schedule_from_row(row)
+        for row in conn.execute("SELECT * FROM custody_schedule")
     }
 
 
@@ -76,39 +90,39 @@ def base_custodian_on(schedule, d: date) -> int:
     return cycle[offset]
 
 
-def custodian_on(conn, d: date, schedule=None) -> int | None:
-    """Which parent has the kids on date ``d`` (override-aware)."""
+def custodian_on(conn, circle_id: int, d: date, schedule=None) -> int | None:
+    """Which parent has this circle's kids on date ``d`` (override-aware)."""
     row = conn.execute(
-        "SELECT parent_id FROM custody_overrides WHERE date = ?", (d.isoformat(),)
+        "SELECT parent_id FROM custody_overrides WHERE circle_id = ? AND date = ?",
+        (circle_id, d.isoformat()),
     ).fetchone()
     if row:
         return row["parent_id"]
     if schedule is None:
-        schedule = load_schedule(conn)
+        schedule = load_schedule(conn, circle_id)
     if not schedule:
         return None
     return base_custodian_on(schedule, d)
 
 
-def override_on(conn, d: date):
+def override_on(conn, circle_id: int, d: date):
     return conn.execute(
-        "SELECT * FROM custody_overrides WHERE date = ?", (d.isoformat(),)
+        "SELECT * FROM custody_overrides WHERE circle_id = ? AND date = ?",
+        (circle_id, d.isoformat()),
     ).fetchone()
 
 
-def custody_blocks(conn, start: date, end: date):
-    """Contiguous custody runs between start and end (inclusive).
-
-    Returns a list of dicts: {parent_id, start, end, has_override}.
-    """
-    schedule = load_schedule(conn)
+def custody_blocks(conn, circle_id: int, start: date, end: date):
+    """Contiguous custody runs for one circle between start and end (incl.)."""
+    schedule = load_schedule(conn, circle_id)
     if not schedule:
         return []
     overrides = {
         r["date"]: r["parent_id"]
         for r in conn.execute(
-            "SELECT date, parent_id FROM custody_overrides WHERE date BETWEEN ? AND ?",
-            (start.isoformat(), end.isoformat()),
+            "SELECT date, parent_id FROM custody_overrides "
+            "WHERE circle_id = ? AND date BETWEEN ? AND ?",
+            (circle_id, start.isoformat(), end.isoformat()),
         )
     }
     blocks = []
@@ -136,18 +150,16 @@ def _swap_ranges(swap):
 
 
 def swap_conflicts(conn, swap) -> list[date]:
-    """Dates in this swap's ranges already owned by a different approved swap.
-
-    Approving over these would silently undo an earlier agreement, so the
-    caller should refuse and let the parents sort it out.
-    """
+    """Dates in this swap's ranges already owned by a different approved swap
+    in the same circle."""
     conflicts = []
     for start_s, end_s, _parent in _swap_ranges(swap):
         d = date.fromisoformat(start_s)
         end = date.fromisoformat(end_s)
         while d <= end:
             row = conn.execute(
-                "SELECT swap_id FROM custody_overrides WHERE date = ?", (d.isoformat(),)
+                "SELECT swap_id FROM custody_overrides WHERE circle_id = ? AND date = ?",
+                (swap["circle_id"], d.isoformat()),
             ).fetchone()
             if row and row["swap_id"] and row["swap_id"] != swap["id"]:
                 conflicts.append(d)
@@ -162,10 +174,11 @@ def apply_swap_overrides(conn, swap) -> None:
         end = date.fromisoformat(end_s)
         while d <= end:
             conn.execute(
-                "INSERT INTO custody_overrides(date, parent_id, swap_id) VALUES(?, ?, ?) "
-                "ON CONFLICT(date) DO UPDATE SET parent_id = excluded.parent_id, "
-                "swap_id = excluded.swap_id",
-                (d.isoformat(), parent_id, swap["id"]),
+                "INSERT INTO custody_overrides(circle_id, date, parent_id, swap_id) "
+                "VALUES(?, ?, ?, ?) "
+                "ON CONFLICT(circle_id, date) DO UPDATE SET "
+                "parent_id = excluded.parent_id, swap_id = excluded.swap_id",
+                (swap["circle_id"], d.isoformat(), parent_id, swap["id"]),
             )
             d += timedelta(days=1)
     conn.commit()

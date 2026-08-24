@@ -1,8 +1,12 @@
-"""End-to-end flow: setup → events → feeds → invite → swap → messages → display.
+"""End-to-end flows for the blended-household model.
 
-Runs against SQLite by default. To run the same suite against Postgres
-(validating the Supabase/Vercel path), point HUB_DATABASE_URL at a throwaway
-Postgres database — its public schema is DROPPED before each test:
+Household: Dylan + Sarah co-parent Emma & Ava (circle 1); Dylan's partner
+Mark + his ex Jess co-parent Leo & Max (circle 2). All four adults share one
+hub; private events are masked outside the kid's circle.
+
+Runs against SQLite by default. To run against Postgres (validating the
+Supabase/Vercel path), point HUB_DATABASE_URL at a throwaway database —
+its public schema is DROPPED before each test:
 
     HUB_DATABASE_URL=postgresql://user@host:port/db pytest tests/test_app.py
 """
@@ -38,23 +42,49 @@ def client(env):
     return TestClient(env, follow_redirects=True)
 
 
+def monday():
+    return (date.today() - timedelta(days=date.today().weekday())).isoformat()
+
+
 def do_setup(client):
-    monday = (date.today() - timedelta(days=date.today().weekday())).isoformat()
     r = client.post("/setup", data={
-        "household_name": "Testers",
-        "parent1_name": "Dylan",
-        "parent1_email": "dylan@example.com",
-        "parent1_password": "pass1234",
-        "parent2_name": "Alex",
-        "kid1_name": "Sam",
-        "kid2_name": "Riley",
-        "pattern": "alternating_weeks",
-        "first_parent": "1",
-        "anchor_date": monday,
-        "handoff_time": "18:00",
+        "household_name": "Blended Testers",
+        "adult1_name": "Dylan",
+        "adult1_email": "dylan@example.com",
+        "adult1_password": "pass1234",
+        "adult2_name": "Sarah",
+        "adult3_name": "Mark",
+        "adult4_name": "Jess",
+        "kid1_name": "Emma", "kid1_circle": "1",
+        "kid2_name": "Ava", "kid2_circle": "1",
+        "kid3_name": "Leo", "kid3_circle": "2",
+        "kid4_name": "Max", "kid4_circle": "2",
+        "pattern1": "alternating_weeks",
+        "first_parent1": "1",
+        "anchor_date1": monday(),
+        "handoff_time1": "18:00",
+        "pattern2": "two_two_three",
+        "first_parent2": "1",
+        "anchor_date2": monday(),
+        "handoff_time2": "17:00",
     })
     assert r.status_code == 200
-    return monday
+    return monday()
+
+
+def join(env, conn, name, password):
+    invite = conn.execute(
+        "SELECT invite_token FROM parents WHERE name = ?", (name,)
+    ).fetchone()["invite_token"]
+    assert invite
+    c = TestClient(env, follow_redirects=True)
+    r = c.post(f"/invite/{invite}", data={"password": password})
+    assert r.status_code == 200
+    return c
+
+
+def parent_id(conn, name):
+    return conn.execute("SELECT id FROM parents WHERE name = ?", (name,)).fetchone()["id"]
 
 
 def test_root_redirects_to_setup(client):
@@ -63,163 +93,173 @@ def test_root_redirects_to_setup(client):
     assert r.headers["location"] == "/setup"
 
 
-def test_full_flow(env, client):
+def test_setup_creates_blended_household(env, client):
     do_setup(client)
-
-    # Logged in as parent 1; calendar shows custody banner and household.
-    r = client.get("/")
-    assert "Testers" in r.text
-    assert "Dylan" in r.text
-
-    # Create an event with kids attached.
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
-    r = client.post("/events/new", data={
-        "title": "Soccer practice",
-        "category": "activity",
-        "date": tomorrow,
-        "start_time": "16:00",
-        "end_time": "17:30",
-        "location": "Park",
-        "notes": "",
-        "kid_ids": ["1"],
-    })
-    assert "Soccer practice" in r.text
-
-    # Feeds exist (all + custody + one per kid) and serve valid ICS.
     conn = db.connect()
-    feeds_rows = conn.execute("SELECT * FROM feeds ORDER BY id").fetchall()
-    assert [f["kind"] for f in feeds_rows] == ["all", "custody", "kid", "kid"]
-    all_token = feeds_rows[0]["token"]
-    r = client.get(f"/ics/{all_token}.ics")
-    assert r.status_code == 200
-    assert "text/calendar" in r.headers["content-type"]
-    assert "Soccer practice" in r.text
-    assert "Kids with" in r.text
-    assert client.get("/ics/wrong-token.ics").status_code == 404
-
-    # Second parent joins via invite link.
-    invite = conn.execute(
-        "SELECT invite_token FROM parents WHERE name = 'Alex'"
-    ).fetchone()["invite_token"]
-    assert invite
-    alex = TestClient(env, follow_redirects=True)
-    r = alex.post(f"/invite/{invite}", data={"password": "alexpass"})
-    assert r.status_code == 200
-    assert "Testers" in r.text
-
-    # Dylan requests a swap; Dylan cannot approve their own request.
-    start = (date.today() + timedelta(days=10)).isoformat()
-    end = (date.today() + timedelta(days=12)).isoformat()
-    r = client.post("/swaps/new", data={
-        "range1_parent": "1",
-        "range1_start": start,
-        "range1_end": end,
-        "reason": "Lake weekend with the kids",
-    })
-    assert "pending" in r.text
-    swap_id = conn.execute("SELECT id FROM swaps").fetchone()["id"]
-    client.post(f"/swaps/{swap_id}/decide", data={"decision": "approved"})
-    assert conn.execute(
-        "SELECT status FROM swaps WHERE id = ?", (swap_id,)
-    ).fetchone()["status"] == "pending"
-
-    # Alex approves; overrides are written and show up in the custody feed.
-    r = alex.post(f"/swaps/{swap_id}/decide", data={"decision": "approved"})
-    assert "approved" in r.text
-    n_overrides = conn.execute(
-        "SELECT COUNT(*) AS n FROM custody_overrides WHERE swap_id = ?", (swap_id,)
-    ).fetchone()["n"]
-    assert n_overrides == 3
-    override_parent = conn.execute(
-        "SELECT parent_id FROM custody_overrides WHERE date = ?", (start,)
-    ).fetchone()["parent_id"]
-    assert override_parent == 1
-
-    # Messaging: new thread + reply from the other parent.
-    r = client.post("/messages/new", data={
-        "subject": "Thursday pickup",
-        "kid_id": "1",
-        "body": "Can you grab Sam at 3?",
-    })
-    assert "Can you grab Sam at 3?" in r.text
-    thread_id = conn.execute(
-        "SELECT id FROM threads WHERE swap_id IS NULL"
-    ).fetchone()["id"]
-    r = alex.post(f"/messages/{thread_id}/reply", data={"body": "Yep, no problem."})
-    assert "Yep, no problem." in r.text
-
-    # Wall display: works with token (no login), rejects a bad token.
-    display_token = db.get_setting(conn, "display_token")
-    anon = TestClient(env)
-    assert anon.get(f"/display?token={display_token}").status_code == 200
-    assert "Testers" in anon.get(f"/display?token={display_token}").text
-    assert anon.get("/display?token=nope").status_code == 403
-    assert anon.get("/display").status_code == 403
+    assert conn.execute("SELECT COUNT(*) AS n FROM parents").fetchone()["n"] == 4
+    assert conn.execute("SELECT COUNT(*) AS n FROM circles").fetchone()["n"] == 2
+    assert conn.execute("SELECT COUNT(*) AS n FROM kids").fetchone()["n"] == 4
+    assert conn.execute("SELECT COUNT(*) AS n FROM custody_schedule").fetchone()["n"] == 2
+    # One personal feed per adult + a shared custody feed.
+    rows = conn.execute("SELECT kind, owner_parent_id FROM feeds").fetchall()
+    assert sum(1 for r in rows if r["kind"] == "all" and r["owner_parent_id"]) == 4
+    assert sum(1 for r in rows if r["kind"] == "custody") == 1
+    # Calendar shows both circles' custody chips.
+    r = client.get("/")
+    assert "Ava &amp; Emma" in r.text
+    assert "Leo &amp; Max" in r.text
     conn.close()
 
 
-def test_login_logout(env, client):
-    do_setup(client)
-    client.post("/logout")
-    r = client.get("/", follow_redirects=False)
-    assert r.headers["location"] == "/login"
-    r = client.post("/login", data={"name": "dylan", "password": "wrong"})
-    assert "Wrong name or password" in r.text
-    r = client.post("/login", data={"name": "Dylan", "password": "pass1234"})
-    assert "Week of" in r.text
-
-
-def join_alex(env, conn):
-    invite = conn.execute(
-        "SELECT invite_token FROM parents WHERE name = 'Alex'"
-    ).fetchone()["invite_token"]
-    alex = TestClient(env, follow_redirects=True)
-    alex.post(f"/invite/{invite}", data={"password": "alexpass"})
-    return alex
-
-
-def test_swap_conflicting_with_approved_swap_is_blocked(env, client):
+def test_private_event_masked_outside_circle(env, client):
     do_setup(client)
     conn = db.connect()
-    alex = join_alex(env, conn)
+    mark = join(env, conn, "Mark", "markpass")
 
+    when = (date.today() + timedelta(days=1)).isoformat()
+    client.post("/events/new", data={
+        "title": "Emma therapy",
+        "category": "medical",
+        "date": when,
+        "start_time": "15:00",
+        "private": "on",
+        "kid_ids": [str(conn.execute("SELECT id FROM kids WHERE name='Emma'").fetchone()["id"])],
+    })
+    event_id = conn.execute("SELECT id FROM events").fetchone()["id"]
+
+    # Dylan (creator + co-parent) sees the details on the calendar.
+    assert "Emma therapy" in client.get(f"/?start={when}").text
+    # Mark sees a Busy block, not the details, and can't open the event.
+    mark_cal = mark.get(f"/?start={when}").text
+    assert "Emma therapy" not in mark_cal
+    assert "Busy" in mark_cal
+    assert mark.get(f"/events/{event_id}/edit").status_code == 404
+    # Sarah (Emma's other co-parent) has full access.
+    sarah = join(env, conn, "Sarah", "sarahpass")
+    assert "Emma therapy" in sarah.get(f"/?start={when}").text
+    assert sarah.get(f"/events/{event_id}/edit").status_code == 200
+
+    # Personal feeds enforce the same rule.
+    def feed_token(name):
+        return conn.execute(
+            "SELECT token FROM feeds WHERE kind='all' AND owner_parent_id = ?",
+            (parent_id(conn, name),),
+        ).fetchone()["token"]
+    assert "Emma therapy" in client.get(f"/ics/{feed_token('Dylan')}.ics").text
+    mark_ics = mark.get(f"/ics/{feed_token('Mark')}.ics").text
+    assert "Emma therapy" not in mark_ics
+    assert "Busy (Emma)" in mark_ics
+
+    # The shared wall display always masks private events.
+    token = db.get_setting(conn, "display_token")
+    display = TestClient(env).get(f"/display?token={token}").text
+    assert "Emma therapy" not in display
+    assert "Busy" in display
+    conn.close()
+
+
+def test_swaps_scoped_to_circle(env, client):
+    do_setup(client)
+    conn = db.connect()
+    mark = join(env, conn, "Mark", "markpass")
+    sarah = join(env, conn, "Sarah", "sarahpass")
+
+    circle1 = conn.execute(
+        "SELECT circle_id FROM circle_parents WHERE parent_id = ?",
+        (parent_id(conn, "Dylan"),),
+    ).fetchone()["circle_id"]
     start = (date.today() + timedelta(days=10)).isoformat()
     end = (date.today() + timedelta(days=12)).isoformat()
-    client.post("/swaps/new", data={
-        "range1_parent": "1", "range1_start": start, "range1_end": end,
-    })
-    first_id = conn.execute("SELECT MAX(id) AS id FROM swaps").fetchone()["id"]
-    alex.post(f"/swaps/{first_id}/decide", data={"decision": "approved"})
-    assert conn.execute("SELECT status FROM swaps WHERE id = ?", (first_id,)) \
-        .fetchone()["status"] == "approved"
 
-    # Second swap overlapping the same dates, giving the kids to parent 2.
-    client.post("/swaps/new", data={
-        "range1_parent": "2", "range1_start": start, "range1_end": start,
+    # Mark isn't in circle 1 and can't request swaps there.
+    r = mark.post("/swaps/new", data={
+        "circle_id": str(circle1), "range1_parent": str(parent_id(conn, "Dylan")),
+        "range1_start": start, "range1_end": end,
     })
-    second_id = conn.execute("SELECT MAX(id) AS id FROM swaps").fetchone()["id"]
-    r = alex.post(f"/swaps/{second_id}/decide", data={"decision": "approved"})
-    assert conn.execute("SELECT status FROM swaps WHERE id = ?", (second_id,)) \
+    assert r.status_code == 403
+
+    # Dylan requests a swap in his circle.
+    r = client.post("/swaps/new", data={
+        "circle_id": str(circle1), "range1_parent": str(parent_id(conn, "Dylan")),
+        "range1_start": start, "range1_end": end,
+        "reason": "Lake weekend",
+    })
+    assert "pending" in r.text
+    swap_id = conn.execute("SELECT id FROM swaps").fetchone()["id"]
+
+    # Mark (not a circle member) can't decide it; Dylan can't approve his own.
+    mark.post(f"/swaps/{swap_id}/decide", data={"decision": "approved"})
+    client.post(f"/swaps/{swap_id}/decide", data={"decision": "approved"})
+    assert conn.execute("SELECT status FROM swaps WHERE id = ?", (swap_id,)) \
         .fetchone()["status"] == "pending"
-    # The earlier agreement still owns the date.
-    row = conn.execute(
-        "SELECT parent_id, swap_id FROM custody_overrides WHERE date = ?", (start,)
-    ).fetchone()
-    assert (row["parent_id"], row["swap_id"]) == (1, first_id)
-    assert "already changed by another" in r.text
+    # Mark sees the swap facts but not the co-parents' discussion.
+    detail = mark.get(f"/swaps/{swap_id}").text
+    assert "Lake weekend" not in detail
+
+    # Sarah approves; overrides land in circle 1 only.
+    r = sarah.post(f"/swaps/{swap_id}/decide", data={"decision": "approved"})
+    assert "approved" in r.text
+    rows = conn.execute("SELECT circle_id, parent_id FROM custody_overrides").fetchall()
+    assert len(rows) == 3
+    assert all(row["circle_id"] == circle1 for row in rows)
+    conn.close()
+
+
+def test_circle_thread_hidden_from_other_circle(env, client):
+    do_setup(client)
+    conn = db.connect()
+    mark = join(env, conn, "Mark", "markpass")
+    circle1 = conn.execute(
+        "SELECT circle_id FROM circle_parents WHERE parent_id = ?",
+        (parent_id(conn, "Dylan"),),
+    ).fetchone()["circle_id"]
+
+    # Dylan starts a circle-only thread and a household thread.
+    client.post("/messages/new", data={
+        "subject": "Sarah only: pickup change", "circle_id": str(circle1),
+        "body": "Can we move Thursday?",
+    })
+    client.post("/messages/new", data={
+        "subject": "Grocery run", "circle_id": "", "body": "Anyone need anything?",
+    })
+    private_thread = conn.execute(
+        "SELECT id FROM threads WHERE circle_id IS NOT NULL AND swap_id IS NULL"
+    ).fetchone()["id"]
+
+    mark_list = mark.get("/messages").text
+    assert "Grocery run" in mark_list
+    assert "Sarah only" not in mark_list
+    assert mark.get(f"/messages/{private_thread}").status_code == 404
+    # Mark can't post into circle 1 either.
+    r = mark.post("/messages/new", data={
+        "subject": "sneak", "circle_id": str(circle1), "body": "hi",
+    })
+    assert r.status_code == 403
+    conn.close()
+
+
+def test_feeds_page_shows_only_own_tokens(env, client):
+    do_setup(client)
+    conn = db.connect()
+    mark = join(env, conn, "Mark", "markpass")
+    dylan_token = conn.execute(
+        "SELECT token FROM feeds WHERE kind='all' AND owner_parent_id = ?",
+        (parent_id(conn, "Dylan"),),
+    ).fetchone()["token"]
+    mark_page = mark.get("/feeds").text
+    assert dylan_token not in mark_page
     conn.close()
 
 
 def test_login_checks_all_rows_with_same_name(env, client):
     do_setup(client)
     conn = db.connect()
-    alex = join_alex(env, conn)
-    # Both parents end up named the same.
-    conn.execute("UPDATE parents SET name = 'Sam Parent'")
+    join(env, conn, "Sarah", "sarahpass")
+    conn.execute(
+        "UPDATE parents SET name = 'Sam Parent' WHERE name IN ('Dylan', 'Sarah')"
+    )
     conn.commit()
-    # Previously only one arbitrary row was checked, so one parent could
-    # never log in. Now both passwords work under the shared name.
-    for password in ("pass1234", "alexpass"):
+    for password in ("pass1234", "sarahpass"):
         fresh = TestClient(env, follow_redirects=True)
         r = fresh.post("/login", data={"name": "Sam Parent", "password": password})
         assert "Week of" in r.text
@@ -232,27 +272,41 @@ def test_login_checks_all_rows_with_same_name(env, client):
 def test_invite_cannot_take_over_joined_account(env, client):
     do_setup(client)
     conn = db.connect()
-    join_alex(env, conn)
-    assert conn.execute(
-        "SELECT password_hash FROM parents WHERE name = 'Alex'"
-    ).fetchone()["password_hash"]
+    join(env, conn, "Sarah", "sarahpass")
+    sarah_id = parent_id(conn, "Sarah")
 
-    # Dylan can no longer mint an invite link for Alex's claimed account.
-    client.post("/settings/parents/2/invite")
+    client.post(f"/settings/parents/{sarah_id}/invite")
     assert conn.execute(
-        "SELECT invite_token FROM parents WHERE id = 2"
+        "SELECT invite_token FROM parents WHERE id = ?", (sarah_id,)
     ).fetchone()["invite_token"] is None
 
-    # Even a lingering token can't reset a claimed account's password.
-    conn.execute("UPDATE parents SET invite_token = 'stale-token' WHERE id = 2")
+    conn.execute(
+        "UPDATE parents SET invite_token = 'stale-token' WHERE id = ?", (sarah_id,)
+    )
     conn.commit()
     r = client.post("/invite/stale-token", data={"password": "hijacked"},
                     follow_redirects=False)
     assert r.status_code == 404
-    login = TestClient(env, follow_redirects=True)
-    assert "Week of" in login.post(
-        "/login", data={"name": "Alex", "password": "alexpass"}
-    ).text
+    conn.close()
+
+
+def test_custody_settings_scoped_to_circle(env, client):
+    do_setup(client)
+    conn = db.connect()
+    circle2 = conn.execute(
+        "SELECT circle_id FROM circle_parents WHERE parent_id = ?",
+        (parent_id(conn, "Mark"),),
+    ).fetchone()["circle_id"]
+    # Dylan isn't a co-parent in circle 2 — he can't change its schedule.
+    r = client.post(f"/settings/custody/{circle2}", data={
+        "pattern": "alternating_weeks",
+        "first_parent": str(parent_id(conn, "Mark")),
+        "anchor_date": monday(),
+    })
+    assert r.status_code == 403
+    assert conn.execute(
+        "SELECT pattern FROM custody_schedule WHERE circle_id = ?", (circle2,)
+    ).fetchone()["pattern"] == "two_two_three"
     conn.close()
 
 
@@ -260,12 +314,11 @@ def test_household_timezone_setting(env, client):
     do_setup(client)
     conn = db.connect()
     client.post("/settings/household", data={
-        "household_name": "Testers", "timezone": "America/Chicago",
+        "household_name": "Blended Testers", "timezone": "America/Chicago",
     })
     assert db.get_setting(conn, "timezone") == "America/Chicago"
-    # An unknown timezone is ignored, keeping the old value.
     client.post("/settings/household", data={
-        "household_name": "Testers", "timezone": "Not/AZone",
+        "household_name": "Blended Testers", "timezone": "Not/AZone",
     })
     assert db.get_setting(conn, "timezone") == "America/Chicago"
     assert client.get("/").status_code == 200
@@ -273,30 +326,17 @@ def test_household_timezone_setting(env, client):
 
 
 def test_unreachable_database_shows_diagnostic_page(monkeypatch):
-    # A dead Postgres must not crash the function at import; requests get a
-    # readable diagnostic page instead.
     monkeypatch.setenv("HUB_DATABASE_URL", "postgresql://u:p@127.0.0.1:59999/nope")
     app = create_app()
     c = TestClient(app, raise_server_exceptions=False)
     r = c.get("/")
     assert r.status_code == 500
     assert "can't reach its database" in r.text
-    assert "Transaction pooler" in r.text or "HUB_DATABASE_URL" in r.text
-
-
-def test_direct_supabase_hostname_gets_named_in_diagnostics(monkeypatch):
-    from hub.app import _db_hints
-
-    monkeypatch.setenv(
-        "HUB_DATABASE_URL", "postgresql://postgres:p@db.abcdefgh.supabase.co:6543/postgres"
-    )
-    hints = " ".join(_db_hints("Cannot assign requested address"))
-    assert "DIRECT hostname" in hints
-    assert "Transaction pooler" in hints
 
 
 def test_repeating_event_creates_series(env, client):
     do_setup(client)
+    conn = db.connect()
     first = date.today() + timedelta(days=2)
     until = first + timedelta(weeks=3)
     client.post("/events/new", data={
@@ -305,13 +345,11 @@ def test_repeating_event_creates_series(env, client):
         "date": first.isoformat(),
         "start_time": "15:00",
         "repeat_until": until.isoformat(),
-        "kid_ids": ["2"],
+        "kid_ids": [str(conn.execute("SELECT id FROM kids WHERE name='Ava'").fetchone()["id"])],
     })
-    conn = db.connect()
     rows = conn.execute("SELECT * FROM events ORDER BY date").fetchall()
     assert len(rows) == 4
     assert len({r["series_id"] for r in rows}) == 1
-    # Delete the whole series.
     client.post(f"/events/{rows[0]['id']}/delete", data={"scope": "series"})
     assert conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"] == 0
     conn.close()

@@ -6,12 +6,15 @@ standard iCal URL — subscribe from any calendar app and it stays in sync
 automatically (including custody changes from approved swaps).</p>
 
 <div class="card">
-  <h2>Feeds</h2>
+  <h2>Your feeds</h2>
+  <p class="muted small">These links show the schedule <strong>as you're allowed to see
+  it</strong> — private items you can't see appear as "Busy". Don't share your
+  personal links; each adult has their own on their Feeds page.</p>
   {% for f in feeds %}
   <div class="feedrow">
     <div>
       <strong>{{ f['name'] }}</strong>
-      <span class="muted small">({{ 'everything' if f['kind'] == 'all' else ('custody only' if f['kind'] == 'custody' else f['kid_name'] ~ ' only') }})</span>
+      <span class="muted small">({% if f['kind'] == 'all' %}everything{% elif f['kind'] == 'custody' %}custody only — safe to share{% else %}{{ f['kid_name'] }} only{% endif %})</span>
     </div>
     <div class="feedurl">
       <input readonly value="{{ base_url }}/ics/{{ f['token'] }}.ics" onclick="this.select()">
@@ -20,6 +23,13 @@ automatically (including custody changes from approved swaps).</p>
     </div>
   </div>
   {% endfor %}
+  <form method="post" action="/feeds/new" class="row">
+    <select name="kid_id" required>
+      <option value="">— pick a kid —</option>
+      {% for k in kids %}<option value="{{ k['id'] }}">{{ k['name'] }}</option>{% endfor %}
+    </select>
+    <button class="btn" type="submit">Create a single-kid feed</button>
+  </form>
 </div>
 
 <div class="card">
@@ -34,16 +44,13 @@ automatically (including custody changes from approved swaps).</p>
       <em>Add Account</em> → <em>Other</em> → <em>Add Subscribed Calendar</em> → paste the
       URL. (On a Mac: Calendar → File → New Calendar Subscription.)</li>
   </ul>
-  <p class="notice">⚠️ Anyone with a feed URL can read that calendar — share the links
-  only with family. The hub must be reachable from the internet (HTTPS) for
-  Google/Outlook/iCloud to fetch it.</p>
 </div>
 
 <div class="card">
   <h2>🖼 Wall display (Skylight-style)</h2>
-  <p>Open this link full-screen on your ApoloSign (or any tablet / smart display
-  with a browser). It shows the next 7 days, who has the kids, and refreshes
-  itself — no login needed on the device.</p>
+  <p>Open this link full-screen on your smart display or tablet. It shows the
+  next 7 days for both sets of kids, who has whom, and refreshes itself — no
+  login needed on the device. Private events always show as "Busy" on the wall.</p>
   <div class="feedurl">
     <input readonly value="{{ base_url }}/display?token={{ display_token }}" onclick="this.select()">
     <button class="btn" type="button"

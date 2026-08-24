@@ -19,7 +19,7 @@
 </div>
 
 <div class="card">
-  <h2>Parents</h2>
+  <h2>Adults</h2>
   {% for p in parents_list %}
   <div class="feedrow">
     <div><span class="dot" style="background: {{ p['color'] }}"></span>
@@ -50,15 +50,22 @@
   <h2>Kids</h2>
   {% for k in kids %}
   <div class="feedrow">
-    <div><span class="dot" style="background: {{ k['color'] }}"></span> <strong>{{ k['name'] }}</strong></div>
+    <div><span class="dot" style="background: {{ k['color'] }}"></span> <strong>{{ k['name'] }}</strong>
+      {% for c in circle_rows %}{% if c.id == k['circle_id'] %}
+      <span class="muted small">({{ c.name }})</span>
+      {% endif %}{% endfor %}
+    </div>
     <form method="post" action="/settings/kids/{{ k['id'] }}/delete"
-          onsubmit="return confirm('Remove {{ k['name'] }} and their feed?')">
+          onsubmit="return confirm('Remove {{ k['name'] }}?')">
       <button class="btn danger" type="submit">Remove</button>
     </form>
   </div>
   {% endfor %}
   <form method="post" action="/settings/kids/add" class="row">
     <input name="name" placeholder="Kid's name" required>
+    <select name="circle_id" required>
+      {% for c in all_circles %}<option value="{{ c['id'] }}">{{ c['name'] }}</option>{% endfor %}
+    </select>
     <select name="color">
       {% for c in kid_colors %}<option value="{{ c }}" style="background: {{ c }}">{{ c }}</option>{% endfor %}
     </select>
@@ -66,36 +73,38 @@
   </form>
 </div>
 
+{% for c in circle_rows %}
 <div class="card">
-  <h2>Custody schedule</h2>
-  {% if schedule %}
-  <p>Current pattern: <strong>{{ patterns[schedule.pattern] }}</strong>,
-    anchored to the week of {{ schedule.anchor_date.strftime("%B %-d, %Y") }},
-    handoff around {{ schedule.handoff_time }}.</p>
+  <h2>Custody — {{ c.name }}{% if c.label %} <span class="muted small">({{ c.label }})</span>{% endif %}</h2>
+  {% if c.schedule %}
+  <p>Current pattern: <strong>{{ patterns[c.schedule.pattern] }}</strong>,
+    anchored to the week of {{ c.schedule.anchor_date.strftime("%B %-d, %Y") }},
+    handoff around {{ c.schedule.handoff_time }}.</p>
   {% else %}
-  <p class="muted">No custody schedule configured.</p>
+  <p class="muted">No custody schedule configured for this circle.</p>
   {% endif %}
-  <form method="post" action="/settings/custody" class="stack">
+  {% if c.editable %}
+  <form method="post" action="/settings/custody/{{ c.id }}" class="stack">
     <div class="grid4">
       <label>Pattern
         <select name="pattern">
           {% for key, label in patterns.items() %}
-          <option value="{{ key }}" {% if schedule and schedule.pattern == key %}selected{% endif %}>{{ label }}</option>
+          <option value="{{ key }}" {% if c.schedule and c.schedule.pattern == key %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
       </label>
       <label>Starts with
         <select name="first_parent">
-          {% for p in parents_list %}<option value="{{ p['id'] }}">{{ p['name'] }}</option>{% endfor %}
+          {% for p in c.members %}<option value="{{ p['id'] }}">{{ p['name'] }}</option>{% endfor %}
         </select>
       </label>
       <label>Week starting
         <input name="anchor_date" type="date"
-               value="{{ schedule.anchor_date.isoformat() if schedule else '' }}" required>
+               value="{{ c.schedule.anchor_date.isoformat() if c.schedule else '' }}" required>
       </label>
       <label>Handoff time
         <input name="handoff_time" type="time"
-               value="{{ schedule.handoff_time if schedule else '18:00' }}">
+               value="{{ c.schedule.handoff_time if c.schedule else '18:00' }}">
       </label>
     </div>
     <details>
@@ -104,7 +113,7 @@
         {% for day in ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] %}
         <label>{{ day }}
           <select name="weekday{{ loop.index0 }}">
-            {% for p in parents_list %}<option value="{{ p['id'] }}">{{ p['name'] }}</option>{% endfor %}
+            {% for p in c.members %}<option value="{{ p['id'] }}">{{ p['name'] }}</option>{% endfor %}
           </select>
         </label>
         {% endfor %}
@@ -114,5 +123,9 @@
     approved swaps — those stay as agreed.</p>
     <button class="btn primary" type="submit">Save custody schedule</button>
   </form>
+  {% else %}
+  <p class="muted small">Only this circle's co-parents can change its schedule.</p>
+  {% endif %}
 </div>
+{% endfor %}
 {% endblock %}
