@@ -21,14 +21,6 @@ from . import custody
 
 PRODID = "-//Family Hub//Schedule Feed//EN"
 
-CATEGORY_EMOJI = {
-    "school": "🎒",
-    "activity": "⚽",
-    "medical": "🩺",
-    "custody": "🏠",
-    "other": "📌",
-}
-
 
 def ics_escape(text: str) -> str:
     return (
@@ -95,15 +87,9 @@ def _dtstamp() -> str:
 
 def event_vevent(ev, kid_names: list[str], visible: bool) -> list[str]:
     """One VEVENT; a private event the viewer can't see becomes a Busy block."""
-    if visible:
-        emoji = CATEGORY_EMOJI.get(ev["category"], "📌")
-        title = f"{emoji} {ev['title']}"
-        if kid_names:
-            title += f" ({', '.join(kid_names)})"
-    else:
-        title = "🔒 Busy"
-        if kid_names:
-            title += f" ({', '.join(kid_names)})"
+    title = ev["title"] if visible else "Busy"
+    if kid_names:
+        title += f" ({', '.join(kid_names)})"
     d = date.fromisoformat(ev["date"])
     lines = [
         "BEGIN:VEVENT",
@@ -132,7 +118,7 @@ def event_vevent(ev, kid_names: list[str], visible: bool) -> list[str]:
 
 def custody_vevent(circle_id: int, block, parent_name: str, kid_label: str,
                    handoff_time: str) -> list[str]:
-    summary = f"🏠 {kid_label} with {parent_name}" if kid_label else f"🏠 Kids with {parent_name}"
+    summary = f"{kid_label} with {parent_name}" if kid_label else f"Kids with {parent_name}"
     desc = f"Custody: {parent_name} has {kid_label or 'the kids'}. Handoff around {handoff_time}."
     if block["has_override"]:
         desc += " Includes an approved schedule swap."

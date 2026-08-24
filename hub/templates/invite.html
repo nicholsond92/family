@@ -2,7 +2,7 @@
 {% block title %}Join {{ household }}{% endblock %}
 {% block content %}
 <div class="card narrow">
-  <h1>Welcome, {{ invitee['name'] }} 👋</h1>
+  <h1>Welcome, {{ invitee['name'] }}</h1>
   <p class="muted">You've been invited to <strong>{{ household }}</strong> — the shared
   hub for the kids' schedules. Set a password to finish joining.</p>
   <form method="post" action="/invite/{{ token }}" class="stack">

@@ -3,7 +3,7 @@
 <p><a href="/messages">← All conversations</a></p>
 <div class="card">
   <h1>{{ thread['subject'] }}
-    {% if thread['circle_id'] %}<span class="badge pending">🔒 {{ thread['circle_name'] }}</span>{% endif %}
+    {% if thread['circle_id'] %}<span class="badge private">{{ thread['circle_name'] }}</span>{% endif %}
     {% if thread['kid_name'] %}<span class="dot" style="background: {{ thread['kid_color'] }}"></span>
     <span class="muted">{{ thread['kid_name'] }}</span>{% endif %}
   </h1>

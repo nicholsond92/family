@@ -4,12 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ household }}{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/hub.css">
 </head>
 <body>
 {% if parent %}
 <nav class="topnav">
-  <div class="brand">🏠 {{ household }}</div>
+  <div class="brand">{{ household }}</div>
   <div class="navlinks">
     <a href="/">Calendar</a>
     <a href="/swaps">Swaps</a>
