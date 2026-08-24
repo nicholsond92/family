@@ -8,6 +8,7 @@ are per-adult so a shared URL can't leak private details.
 """
 
 import html
+import re
 import sqlite3
 import sys
 import uuid
@@ -29,6 +30,7 @@ BASE_DIR = Path(__file__).resolve().parent
 KID_COLORS = ["#e63946", "#f4a261", "#2a9d8f", "#457b9d", "#8d5bd4", "#d81b8c", "#3a86ff", "#588157"]
 PARENT_COLORS = ["#3a86ff", "#e63946", "#2a9d8f", "#8d5bd4", "#f4a261", "#d81b8c"]
 CATEGORIES = ["school", "activity", "medical", "other"]
+HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 # Open-Meteo WMO weather codes -> short display words.
 WEATHER_WORDS = {
@@ -239,8 +241,12 @@ def create_app() -> FastAPI:
         return None
 
     def render(request, name, conn, **ctx):
-        ctx.setdefault("parent", current_parent(request, conn))
+        parent = ctx.setdefault("parent", current_parent(request, conn))
         ctx.setdefault("household", db.get_setting(conn, "household_name", "Family Hub"))
+        theme = "light"
+        if parent:
+            theme = db.get_setting(conn, f"theme:{parent['id']}", "light") or "light"
+        ctx.setdefault("theme", theme)
         ctx["request"] = request
         return templates.TemplateResponse(request, name, ctx)
 
@@ -1257,6 +1263,7 @@ def create_app() -> FastAPI:
                 days=upcoming_days, today=today, banners=banners, kids=kids(conn),
                 kids_by_circle=circle_kid_rows(conn),
                 weather=fetch_weather(conn),
+                display_theme=db.get_setting(conn, "display_theme", "warm") or "warm",
             )
         finally:
             conn.close()
@@ -1294,6 +1301,8 @@ def create_app() -> FastAPI:
                 weather_lat=db.get_setting(conn, "weather_lat", "") or "",
                 weather_lon=db.get_setting(conn, "weather_lon", "") or "",
                 weather_unit=db.get_setting(conn, "weather_unit", "fahrenheit"),
+                my_theme=db.get_setting(conn, f"theme:{me['id']}", "light") or "light",
+                display_theme=db.get_setting(conn, "display_theme", "warm") or "warm",
             )
         finally:
             conn.close()
@@ -1387,7 +1396,9 @@ def create_app() -> FastAPI:
             form = await request.form()
             name = (form.get("name") or "").strip()
             if name:
-                color = form.get("color") or KID_COLORS[0]
+                color = (form.get("color") or "").strip()
+                if not HEX_COLOR.match(color):
+                    color = KID_COLORS[0]
                 circle_id = int(form["circle_id"]) if form.get("circle_id") else None
                 kid_id = db.insert_id(
                     conn,
@@ -1399,6 +1410,56 @@ def create_app() -> FastAPI:
                     "VALUES(?, ?, 'kid', ?, ?)",
                     (security.new_token(16), f"{name} — schedule", kid_id, me["id"]),
                 )
+                conn.commit()
+            return RedirectResponse("/settings", status_code=303)
+        finally:
+            conn.close()
+
+    @app.post("/settings/appearance")
+    async def settings_appearance(request: Request):
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            me = current_parent(request, conn)
+            form = await request.form()
+            if form.get("my_theme") in ("light", "dark"):
+                db.set_setting(conn, f"theme:{me['id']}", form["my_theme"])
+            if form.get("display_theme") in ("warm", "dark"):
+                db.set_setting(conn, "display_theme", form["display_theme"])
+            return RedirectResponse("/settings", status_code=303)
+        finally:
+            conn.close()
+
+    @app.post("/settings/my-color")
+    async def settings_my_color(request: Request):
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            me = current_parent(request, conn)
+            form = await request.form()
+            color = (form.get("color") or "").strip()
+            if HEX_COLOR.match(color):
+                conn.execute("UPDATE parents SET color = ? WHERE id = ?", (color, me["id"]))
+                conn.commit()
+            return RedirectResponse("/settings", status_code=303)
+        finally:
+            conn.close()
+
+    @app.post("/settings/kids/{kid_id}/color")
+    async def settings_kid_color(request: Request, kid_id: int):
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            form = await request.form()
+            color = (form.get("color") or "").strip()
+            if HEX_COLOR.match(color):
+                conn.execute("UPDATE kids SET color = ? WHERE id = ?", (color, kid_id))
                 conn.commit()
             return RedirectResponse("/settings", status_code=303)
         finally:

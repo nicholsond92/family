@@ -9,6 +9,17 @@
   --today: #f5b942;
   --shadow: 0 2px 10px rgba(90, 80, 60, 0.07);
 }
+.theme-dark {
+  --bg: #121317;
+  --card: #1c1e24;
+  --ink: #ececf0;
+  --muted: #8d919c;
+  --line: #262931;
+  --today: #f5b942;
+  --shadow: none;
+}
+.theme-dark .dnothing { color: #343842; }
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 .displaybody {
