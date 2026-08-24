@@ -1,4 +1,11 @@
-"""Family Hub web application (FastAPI)."""
+"""Family Hub web application (FastAPI).
+
+v2 model: one household, several adults, one or two co-parenting circles.
+Each circle (a pair of co-parents) has its own custody schedule and swap
+requests. Events can be private: full details stay visible to that kid's
+co-parents and the creator; everyone else sees a Busy block. Calendar feeds
+are per-adult so a shared URL can't leak private details.
+"""
 
 import html
 import sqlite3
@@ -20,7 +27,7 @@ from . import custody, db, feeds, security
 BASE_DIR = Path(__file__).resolve().parent
 
 KID_COLORS = ["#e63946", "#f4a261", "#2a9d8f", "#457b9d", "#8d5bd4", "#d81b8c", "#3a86ff", "#588157"]
-PARENT_COLORS = ["#3a86ff", "#e63946", "#8d5bd4", "#2a9d8f"]
+PARENT_COLORS = ["#3a86ff", "#e63946", "#2a9d8f", "#8d5bd4", "#f4a261", "#d81b8c"]
 CATEGORIES = ["school", "activity", "medical", "other"]
 
 
@@ -164,6 +171,38 @@ def create_app() -> FastAPI:
     def kids(conn):
         return conn.execute("SELECT * FROM kids ORDER BY id").fetchall()
 
+    def circles(conn):
+        return conn.execute("SELECT * FROM circles ORDER BY id").fetchall()
+
+    def circle_members(conn) -> dict[int, list]:
+        """circle id -> [parent rows] (the circle's two co-parents)."""
+        by_id = {p["id"]: p for p in parents(conn)}
+        out: dict[int, list] = {}
+        for row in conn.execute(
+            "SELECT circle_id, parent_id FROM circle_parents ORDER BY parent_id"
+        ):
+            if row["parent_id"] in by_id:
+                out.setdefault(row["circle_id"], []).append(by_id[row["parent_id"]])
+        return out
+
+    def my_circle_ids(conn, parent_id: int) -> list[int]:
+        return [
+            r["circle_id"] for r in conn.execute(
+                "SELECT circle_id FROM circle_parents WHERE parent_id = ? "
+                "ORDER BY circle_id",
+                (parent_id,),
+            )
+        ]
+
+    def circle_kid_labels(conn) -> dict[int, str]:
+        """circle id -> 'Emma & Ava' (that circle's kids)."""
+        names: dict[int, list[str]] = {}
+        for row in conn.execute(
+            "SELECT circle_id, name FROM kids WHERE circle_id IS NOT NULL ORDER BY name"
+        ):
+            names.setdefault(row["circle_id"], []).append(row["name"])
+        return {cid: " & ".join(ns) for cid, ns in names.items()}
+
     def current_parent(request: Request, conn):
         pid = request.session.get("parent_id")
         if not pid:
@@ -177,6 +216,12 @@ def create_app() -> FastAPI:
         if not current_parent(request, conn):
             return RedirectResponse("/login", status_code=303)
         return None
+
+    def render(request, name, conn, **ctx):
+        ctx.setdefault("parent", current_parent(request, conn))
+        ctx.setdefault("household", db.get_setting(conn, "household_name", "Family Hub"))
+        ctx["request"] = request
+        return templates.TemplateResponse(request, name, ctx)
 
     def hub_tz(conn):
         name = db.get_setting(conn, "timezone", "") or ""
@@ -192,13 +237,34 @@ def create_app() -> FastAPI:
         tz = hub_tz(conn)
         return datetime.now(tz).date() if tz else date.today()
 
-    def render(request, name, conn, **ctx):
-        ctx.setdefault("parent", current_parent(request, conn))
-        ctx.setdefault("household", db.get_setting(conn, "household_name", "Family Hub"))
-        ctx["request"] = request
-        return templates.TemplateResponse(request, name, ctx)
+    def event_allowed_ids(conn, event_id: int) -> set[int]:
+        """Adults allowed to see a private event's details: co-parents of the
+        event's kids, plus the creator."""
+        allowed: set[int] = set()
+        for row in conn.execute(
+            "SELECT cp.parent_id FROM event_kids ek "
+            "JOIN kids k ON k.id = ek.kid_id "
+            "JOIN circle_parents cp ON cp.circle_id = k.circle_id "
+            "WHERE ek.event_id = ?",
+            (event_id,),
+        ):
+            allowed.add(row["parent_id"])
+        row = conn.execute(
+            "SELECT created_by FROM events WHERE id = ?", (event_id,)
+        ).fetchone()
+        if row and row["created_by"]:
+            allowed.add(row["created_by"])
+        return allowed
 
-    def events_between(conn, start: date, end: date):
+    def can_view_event(conn, ev, viewer_id: int | None) -> bool:
+        if not ev["private"]:
+            return True
+        if viewer_id is None:
+            return False
+        return viewer_id in event_allowed_ids(conn, ev["id"])
+
+    def events_between(conn, start: date, end: date, viewer_id: int | None):
+        """Events with kid chips and a per-viewer `visible` flag."""
         rows = conn.execute(
             "SELECT * FROM events WHERE date BETWEEN ? AND ? "
             "ORDER BY date, all_day DESC, start_time",
@@ -208,35 +274,48 @@ def create_app() -> FastAPI:
             "SELECT ek.event_id, k.id, k.name, k.color FROM event_kids ek "
             "JOIN kids k ON k.id = ek.kid_id ORDER BY k.id"
         ).fetchall()
-        kids_by_event = {}
+        kids_by_event: dict[int, list] = {}
         for kr in kid_rows:
             kids_by_event.setdefault(kr["event_id"], []).append(kr)
+        allowed = feeds.viewer_allowed_parents(conn)
         out = []
         for r in rows:
-            out.append({**dict(r), "kids": kids_by_event.get(r["id"], [])})
+            visible = feeds.event_visible_to(r, viewer_id, allowed)
+            out.append({**dict(r), "kids": kids_by_event.get(r["id"], []),
+                        "visible": visible})
         return out
 
-    def week_context(conn, start: date, today: date | None = None):
+    def week_context(conn, start: date, viewer_id: int | None,
+                     today: date | None = None):
         today = today or hub_today(conn)
         parent_by_id = {p["id"]: p for p in parents(conn)}
-        schedule = custody.load_schedule(conn)
-        evs = events_between(conn, start, start + timedelta(days=6))
-        evs_by_date = {}
+        schedules = custody.load_schedules(conn)
+        labels = circle_kid_labels(conn)
+        evs = events_between(conn, start, start + timedelta(days=6), viewer_id)
+        evs_by_date: dict[str, list] = {}
         for e in evs:
             evs_by_date.setdefault(e["date"], []).append(e)
         days = []
         for i in range(7):
             d = start + timedelta(days=i)
-            custodian_id = custody.custodian_on(conn, d, schedule) if schedule else None
+            day_custody = []
+            for cid, schedule in schedules.items():
+                who = custody.custodian_on(conn, cid, d, schedule)
+                day_custody.append({
+                    "circle_id": cid,
+                    "label": labels.get(cid, "Kids"),
+                    "custodian": parent_by_id.get(who),
+                    "has_override": bool(custody.override_on(conn, cid, d)),
+                })
             days.append({
                 "date": d,
                 "iso": d.isoformat(),
                 "is_today": d == today,
-                "custodian": parent_by_id.get(custodian_id),
-                "has_override": bool(custody.override_on(conn, d)),
+                "custody": day_custody,
                 "events": evs_by_date.get(d.isoformat(), []),
             })
-        return {"days": days, "schedule": schedule, "parent_by_id": parent_by_id}
+        return {"days": days, "schedules": schedules, "parent_by_id": parent_by_id,
+                "circle_labels": labels}
 
     def fmt_time(hhmm: str | None) -> str:
         if not hhmm:
@@ -275,74 +354,102 @@ def create_app() -> FastAPI:
             db.set_setting(conn, "household_name", form.get("household_name") or "Our Family")
             db.set_setting(conn, "display_token", security.new_token(16))
 
-            parent1_id = db.insert_id(
-                conn,
-                "INSERT INTO parents(name, email, color, password_hash) VALUES(?, ?, ?, ?)",
-                (
-                    form["parent1_name"].strip(),
-                    (form.get("parent1_email") or "").strip() or None,
-                    PARENT_COLORS[0],
-                    security.hash_password(form["parent1_password"]),
-                ),
-            )
-            invite = security.new_token(16)
-            parent2_id = db.insert_id(
-                conn,
-                "INSERT INTO parents(name, email, color, invite_token) VALUES(?, ?, ?, ?)",
-                (
-                    form["parent2_name"].strip(),
-                    (form.get("parent2_email") or "").strip() or None,
-                    PARENT_COLORS[1],
-                    invite,
-                ),
-            )
+            def add_adult(name, email, color, password=None):
+                if not (name or "").strip():
+                    return None
+                return db.insert_id(
+                    conn,
+                    "INSERT INTO parents(name, email, color, password_hash, invite_token) "
+                    "VALUES(?, ?, ?, ?, ?)",
+                    (
+                        name.strip(),
+                        (email or "").strip() or None,
+                        color,
+                        security.hash_password(password) if password else None,
+                        None if password else security.new_token(16),
+                    ),
+                )
 
-            kid_ids = []
+            me_id = add_adult(form["adult1_name"], form.get("adult1_email"),
+                              PARENT_COLORS[0], form["adult1_password"])
+            coparent_id = add_adult(form["adult2_name"], form.get("adult2_email"),
+                                    PARENT_COLORS[1])
+            partner_id = add_adult(form.get("adult3_name", ""), form.get("adult3_email"),
+                                   PARENT_COLORS[2])
+            partner_co_id = add_adult(form.get("adult4_name", ""), form.get("adult4_email"),
+                                      PARENT_COLORS[3])
+
+            def add_circle(a, b):
+                pa = conn.execute("SELECT name FROM parents WHERE id = ?", (a,)).fetchone()
+                pb = conn.execute("SELECT name FROM parents WHERE id = ?", (b,)).fetchone()
+                cid = db.insert_id(
+                    conn, "INSERT INTO circles(name) VALUES(?)",
+                    (f"{pa['name']} & {pb['name']}",),
+                )
+                conn.execute(
+                    "INSERT INTO circle_parents(circle_id, parent_id) VALUES(?, ?), (?, ?)",
+                    (cid, a, cid, b),
+                )
+                return cid
+
+            circle1 = add_circle(me_id, coparent_id)
+            circle2 = None
+            if partner_id and partner_co_id:
+                circle2 = add_circle(partner_id, partner_co_id)
+
+            kid_index = 0
             for i in range(1, 7):
                 name = (form.get(f"kid{i}_name") or "").strip()
-                if name:
-                    new_kid_id = db.insert_id(
-                        conn,
-                        "INSERT INTO kids(name, color) VALUES(?, ?)",
-                        (name, KID_COLORS[(i - 1) % len(KID_COLORS)]),
-                    )
-                    kid_ids.append((new_kid_id, name))
-
-            pattern = form.get("pattern") or ""
-            if pattern in custody.PATTERNS:
-                first = parent1_id if form.get("first_parent") != "2" else parent2_id
-                second = parent2_id if first == parent1_id else parent1_id
-                anchor = custody.monday_of(
-                    date.fromisoformat(form.get("anchor_date") or date.today().isoformat())
+                if not name:
+                    continue
+                which = form.get(f"kid{i}_circle") or "1"
+                cid = circle2 if (which == "2" and circle2) else circle1
+                conn.execute(
+                    "INSERT INTO kids(name, color, circle_id) VALUES(?, ?, ?)",
+                    (name, KID_COLORS[kid_index % len(KID_COLORS)], cid),
                 )
+                kid_index += 1
+
+            def setup_schedule(suffix, cid, first, second):
+                pattern = form.get(f"pattern{suffix}") or ""
+                if pattern not in custody.PATTERNS or not cid:
+                    return
+                first_id = first if form.get(f"first_parent{suffix}") != "2" else second
+                second_id = second if first_id == first else first
+                anchor = custody.monday_of(date.fromisoformat(
+                    form.get(f"anchor_date{suffix}") or date.today().isoformat()
+                ))
                 custom = None
                 if pattern == "custom_week":
                     custom = [
-                        parent1_id if form.get(f"weekday{i}") != "2" else parent2_id
+                        first if form.get(f"weekday{suffix}_{i}") != "2" else second
                         for i in range(7)
                     ]
-                cycle = custody.compile_cycle(pattern, first, second, custom)
-                custody.save_schedule(
-                    conn, pattern, anchor, cycle, form.get("handoff_time") or "18:00"
-                )
+                cycle = custody.compile_cycle(pattern, first_id, second_id, custom)
+                custody.save_schedule(conn, cid, pattern, anchor, cycle,
+                                      form.get(f"handoff_time{suffix}") or "18:00")
 
-            # Default feeds: whole family, custody only, one per kid.
-            conn.execute(
-                "INSERT INTO feeds(token, name, kind) VALUES(?, ?, 'all')",
-                (security.new_token(16), f"{form.get('household_name') or 'Family'} — everything"),
-            )
-            conn.execute(
-                "INSERT INTO feeds(token, name, kind) VALUES(?, ?, 'custody')",
-                (security.new_token(16), "Custody schedule"),
-            )
-            for kid_id, kid_name in kid_ids:
+            setup_schedule("1", circle1, me_id, coparent_id)
+            if circle2:
+                setup_schedule("2", circle2, partner_id, partner_co_id)
+
+            # Personal full-schedule feed per adult; shared custody-only feed.
+            for pid in (me_id, coparent_id, partner_id, partner_co_id):
+                if not pid:
+                    continue
+                p = conn.execute("SELECT name FROM parents WHERE id = ?", (pid,)).fetchone()
                 conn.execute(
-                    "INSERT INTO feeds(token, name, kind, kid_id) VALUES(?, ?, 'kid', ?)",
-                    (security.new_token(16), f"{kid_name}'s schedule", kid_id),
+                    "INSERT INTO feeds(token, name, kind, owner_parent_id) "
+                    "VALUES(?, ?, 'all', ?)",
+                    (security.new_token(16), f"{p['name']} — full schedule", pid),
                 )
+            conn.execute(
+                "INSERT INTO feeds(token, name, kind) VALUES(?, 'Custody schedules', 'custody')",
+                (security.new_token(16),),
+            )
             conn.commit()
 
-            request.session["parent_id"] = parent1_id
+            request.session["parent_id"] = me_id
             return RedirectResponse("/feeds", status_code=303)
         finally:
             conn.close()
@@ -365,8 +472,6 @@ def create_app() -> FastAPI:
         try:
             form = await request.form()
             name = (form.get("name") or "").strip()
-            # Check every matching row so two parents sharing a name (or a
-            # name matching another's email) can both log in.
             rows = conn.execute(
                 "SELECT * FROM parents WHERE lower(name) = lower(?) OR lower(email) = lower(?)",
                 (name, name),
@@ -404,9 +509,6 @@ def create_app() -> FastAPI:
     async def invite_submit(request: Request, token: str):
         conn = get_conn()
         try:
-            # Invites are only for accounts that haven't joined yet — a claimed
-            # account must never be re-claimable through an invite link, or one
-            # parent could take over the other's identity.
             row = conn.execute(
                 "SELECT * FROM parents WHERE invite_token = ? AND password_hash IS NULL",
                 (token,),
@@ -438,13 +540,20 @@ def create_app() -> FastAPI:
             redirect = guard(request, conn)
             if redirect:
                 return redirect
+            me = current_parent(request, conn)
             week_start = custody.monday_of(
                 date.fromisoformat(start) if start else hub_today(conn)
             )
-            ctx = week_context(conn, week_start)
-            pending = conn.execute(
-                "SELECT COUNT(*) AS n FROM swaps WHERE status = 'pending'"
-            ).fetchone()["n"]
+            ctx = week_context(conn, week_start, me["id"])
+            mine = my_circle_ids(conn, me["id"])
+            pending = 0
+            if mine:
+                placeholders = ",".join("?" * len(mine))
+                pending = conn.execute(
+                    f"SELECT COUNT(*) AS n FROM swaps WHERE status = 'pending' "
+                    f"AND circle_id IN ({placeholders}) AND created_by != ?",
+                    (*mine, me["id"]),
+                ).fetchone()["n"]
             return render(
                 request, "calendar.html", conn,
                 week_start=week_start,
@@ -484,6 +593,7 @@ def create_app() -> FastAPI:
             "all_day": all_day,
             "location": (form.get("location") or "").strip(),
             "notes": (form.get("notes") or "").strip(),
+            "private": 1 if form.get("private") else 0,
             "kid_ids": [int(k) for k in form.getlist("kid_ids")],
             "repeat_until": form.get("repeat_until") or None,
         }
@@ -521,12 +631,12 @@ def create_app() -> FastAPI:
                 event_id = db.insert_id(
                     conn,
                     "INSERT INTO events(title, category, date, start_time, end_time, all_day, "
-                    "location, notes, series_id, created_by, created_at) "
-                    "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "location, notes, private, series_id, created_by, created_at) "
+                    "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         f["title"], f["category"], d.isoformat(), f["start_time"],
                         f["end_time"], f["all_day"], f["location"], f["notes"],
-                        series_id, me["id"], now,
+                        f["private"], series_id, me["id"], now,
                     ),
                 )
                 _set_event_kids(conn, event_id, f["kid_ids"])
@@ -535,6 +645,16 @@ def create_app() -> FastAPI:
         finally:
             conn.close()
 
+    def _editable_event(request: Request, conn, event_id: int):
+        """The event row if the current adult may see/edit it, else None."""
+        ev = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+        if not ev:
+            return None
+        me = current_parent(request, conn)
+        if not can_view_event(conn, ev, me["id"] if me else None):
+            return None
+        return ev
+
     @app.get("/events/{event_id}/edit", response_class=HTMLResponse)
     def event_edit_form(request: Request, event_id: int):
         conn = get_conn()
@@ -542,7 +662,7 @@ def create_app() -> FastAPI:
             redirect = guard(request, conn)
             if redirect:
                 return redirect
-            ev = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+            ev = _editable_event(request, conn, event_id)
             if not ev:
                 return HTMLResponse("Event not found", status_code=404)
             kid_ids = [
@@ -565,16 +685,17 @@ def create_app() -> FastAPI:
             redirect = guard(request, conn)
             if redirect:
                 return redirect
-            ev = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+            ev = _editable_event(request, conn, event_id)
             if not ev:
                 return HTMLResponse("Event not found", status_code=404)
             f = await _event_form_fields(request)
             conn.execute(
                 "UPDATE events SET title = ?, category = ?, date = ?, start_time = ?, "
-                "end_time = ?, all_day = ?, location = ?, notes = ? WHERE id = ?",
+                "end_time = ?, all_day = ?, location = ?, notes = ?, private = ? "
+                "WHERE id = ?",
                 (
                     f["title"], f["category"], f["date"], f["start_time"], f["end_time"],
-                    f["all_day"], f["location"], f["notes"], event_id,
+                    f["all_day"], f["location"], f["notes"], f["private"], event_id,
                 ),
             )
             _set_event_kids(conn, event_id, f["kid_ids"])
@@ -591,7 +712,7 @@ def create_app() -> FastAPI:
             if redirect:
                 return redirect
             form = await request.form()
-            ev = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+            ev = _editable_event(request, conn, event_id)
             if not ev:
                 return HTMLResponse("Event not found", status_code=404)
             if form.get("scope") == "series" and ev["series_id"]:
@@ -612,14 +733,22 @@ def create_app() -> FastAPI:
             redirect = guard(request, conn)
             if redirect:
                 return redirect
+            me = current_parent(request, conn)
             rows = conn.execute(
                 "SELECT * FROM swaps ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, "
                 "created_at DESC"
             ).fetchall()
-            parent_by_id = {p["id"]: p for p in parents(conn)}
+            members = circle_members(conn)
             return render(
                 request, "swaps.html", conn,
-                swaps=rows, parent_by_id=parent_by_id, parents=parents(conn),
+                swaps=rows,
+                parent_by_id={p["id"]: p for p in parents(conn)},
+                circle_labels=circle_kid_labels(conn),
+                my_circles=[
+                    {"id": cid, "members": members.get(cid, []),
+                     "label": circle_kid_labels(conn).get(cid, f"Circle {cid}")}
+                    for cid in my_circle_ids(conn, me["id"])
+                ],
             )
         finally:
             conn.close()
@@ -633,6 +762,17 @@ def create_app() -> FastAPI:
                 return redirect
             me = current_parent(request, conn)
             form = await request.form()
+            circle_id = int(form.get("circle_id") or 0)
+            mine = my_circle_ids(conn, me["id"])
+            if circle_id not in mine:
+                return HTMLResponse(
+                    "Only that circle's co-parents can request swaps for it.",
+                    status_code=403,
+                )
+            member_ids = {p["id"] for p in circle_members(conn).get(circle_id, [])}
+            range1_parent = int(form["range1_parent"])
+            if range1_parent not in member_ids:
+                return HTMLResponse("Pick a parent from that circle.", status_code=400)
             now = datetime.now().isoformat(timespec="seconds")
             r1s, r1e = form["range1_start"], form["range1_end"]
             if r1e < r1s:
@@ -641,16 +781,15 @@ def create_app() -> FastAPI:
             r2e = form.get("range2_end") or None
             if r2s and r2e and r2e < r2s:
                 r2s, r2e = r2e, r2s
-            range1_parent = int(form["range1_parent"])
-            others = [p for p in parents(conn) if p["id"] != range1_parent]
-            range2_parent = others[0]["id"] if (r2s and r2e and others) else None
+            others = [pid for pid in member_ids if pid != range1_parent]
+            range2_parent = others[0] if (r2s and r2e and others) else None
             swap_id = db.insert_id(
                 conn,
-                "INSERT INTO swaps(created_by, status, reason, range1_start, range1_end, "
-                "range1_parent, range2_start, range2_end, range2_parent, created_at) "
-                "VALUES(?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO swaps(circle_id, created_by, status, reason, range1_start, "
+                "range1_end, range1_parent, range2_start, range2_end, range2_parent, "
+                "created_at) VALUES(?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    me["id"], (form.get("reason") or "").strip(),
+                    circle_id, me["id"], (form.get("reason") or "").strip(),
                     r1s, r1e, range1_parent,
                     r2s if (r2s and r2e) else None, r2e if (r2s and r2e) else None,
                     range2_parent, now,
@@ -658,9 +797,9 @@ def create_app() -> FastAPI:
             )
             thread_id = db.insert_id(
                 conn,
-                "INSERT INTO threads(subject, swap_id, created_by, created_at) "
-                "VALUES(?, ?, ?, ?)",
-                (f"Swap request #{swap_id}", swap_id, me["id"], now),
+                "INSERT INTO threads(subject, circle_id, swap_id, created_by, created_at) "
+                "VALUES(?, ?, ?, ?, ?)",
+                (f"Swap request #{swap_id}", circle_id, swap_id, me["id"], now),
             )
             conn.execute("UPDATE swaps SET thread_id = ? WHERE id = ?", (thread_id, swap_id))
             if form.get("reason"):
@@ -684,13 +823,19 @@ def create_app() -> FastAPI:
             swap = conn.execute("SELECT * FROM swaps WHERE id = ?", (swap_id,)).fetchone()
             if not swap:
                 return HTMLResponse("Swap not found", status_code=404)
-            msgs = conn.execute(
-                "SELECT m.*, p.name AS author_name, p.color AS author_color FROM messages m "
-                "JOIN parents p ON p.id = m.author_id WHERE m.thread_id = ? "
-                "ORDER BY m.created_at",
-                (swap["thread_id"],),
-            ).fetchall()
             me = current_parent(request, conn)
+            member_ids = {
+                p["id"] for p in circle_members(conn).get(swap["circle_id"], [])
+            }
+            is_member = me["id"] in member_ids
+            msgs = []
+            if is_member:
+                msgs = conn.execute(
+                    "SELECT m.*, p.name AS author_name, p.color AS author_color "
+                    "FROM messages m JOIN parents p ON p.id = m.author_id "
+                    "WHERE m.thread_id = ? ORDER BY m.created_at",
+                    (swap["thread_id"],),
+                ).fetchall()
             conflicts = (
                 custody.swap_conflicts(conn, swap) if swap["status"] == "pending" else []
             )
@@ -698,10 +843,12 @@ def create_app() -> FastAPI:
                 request, "swap_detail.html", conn,
                 swap=swap,
                 parent_by_id={p["id"]: p for p in parents(conn)},
+                circle_label=circle_kid_labels(conn).get(swap["circle_id"], ""),
                 messages=msgs,
+                is_member=is_member,
                 conflicts=conflicts,
-                can_decide=(swap["status"] == "pending" and me["id"] != swap["created_by"]
-                            and not conflicts),
+                can_decide=(swap["status"] == "pending" and is_member
+                            and me["id"] != swap["created_by"] and not conflicts),
                 can_cancel=(swap["status"] == "pending" and me["id"] == swap["created_by"]),
             )
         finally:
@@ -718,7 +865,10 @@ def create_app() -> FastAPI:
             swap = conn.execute("SELECT * FROM swaps WHERE id = ?", (swap_id,)).fetchone()
             if not swap or swap["status"] != "pending":
                 return RedirectResponse(f"/swaps/{swap_id}", status_code=303)
-            if me["id"] == swap["created_by"]:
+            member_ids = {
+                p["id"] for p in circle_members(conn).get(swap["circle_id"], [])
+            }
+            if me["id"] not in member_ids or me["id"] == swap["created_by"]:
                 return RedirectResponse(f"/swaps/{swap_id}", status_code=303)
             form = await request.form()
             decision = form.get("decision")
@@ -726,7 +876,6 @@ def create_app() -> FastAPI:
                 return RedirectResponse(f"/swaps/{swap_id}", status_code=303)
             now = datetime.now().isoformat(timespec="seconds")
             if decision == "approved":
-                # Never silently overwrite dates already agreed via another swap.
                 conflicts = custody.swap_conflicts(conn, swap)
                 if conflicts:
                     days = ", ".join(d.isoformat() for d in conflicts[:10])
@@ -782,9 +931,14 @@ def create_app() -> FastAPI:
                 return redirect
             me = current_parent(request, conn)
             swap = conn.execute("SELECT * FROM swaps WHERE id = ?", (swap_id,)).fetchone()
+            if not swap:
+                return HTMLResponse("Swap not found", status_code=404)
+            member_ids = {
+                p["id"] for p in circle_members(conn).get(swap["circle_id"], [])
+            }
             form = await request.form()
             body = (form.get("body") or "").strip()
-            if swap and body:
+            if body and me["id"] in member_ids:
                 conn.execute(
                     "INSERT INTO messages(thread_id, author_id, body, created_at) "
                     "VALUES(?, ?, ?, ?)",
@@ -798,6 +952,17 @@ def create_app() -> FastAPI:
 
     # ----------------------------------------------------------------- messages
 
+    def _thread_audiences(conn, me):
+        """Spaces the current adult can post in: household + their circles."""
+        labels = circle_kid_labels(conn)
+        members = circle_members(conn)
+        out = [{"value": "", "label": "Everyone (household)"}]
+        for cid in my_circle_ids(conn, me["id"]):
+            other = [p["name"] for p in members.get(cid, []) if p["id"] != me["id"]]
+            label = f"Just me & {other[0]}" if other else labels.get(cid, f"Circle {cid}")
+            out.append({"value": str(cid), "label": label})
+        return out
+
     @app.get("/messages", response_class=HTMLResponse)
     def messages_list(request: Request):
         conn = get_conn()
@@ -805,15 +970,27 @@ def create_app() -> FastAPI:
             redirect = guard(request, conn)
             if redirect:
                 return redirect
+            me = current_parent(request, conn)
+            mine = my_circle_ids(conn, me["id"])
+            placeholders = ",".join("?" * len(mine)) if mine else "NULL"
             threads = conn.execute(
                 "SELECT t.*, k.name AS kid_name, k.color AS kid_color, "
+                "c.name AS circle_name, "
                 "(SELECT COUNT(*) FROM messages m WHERE m.thread_id = t.id) AS n_messages, "
                 "(SELECT MAX(m.created_at) FROM messages m WHERE m.thread_id = t.id) AS last_at "
                 "FROM threads t LEFT JOIN kids k ON k.id = t.kid_id "
-                "WHERE t.swap_id IS NULL "
-                "ORDER BY COALESCE(last_at, t.created_at) DESC"
+                "LEFT JOIN circles c ON c.id = t.circle_id "
+                "WHERE t.swap_id IS NULL AND "
+                f"(t.circle_id IS NULL OR t.circle_id IN ({placeholders})) "
+                "ORDER BY COALESCE((SELECT MAX(m.created_at) FROM messages m "
+                "WHERE m.thread_id = t.id), t.created_at) DESC",
+                tuple(mine),
             ).fetchall()
-            return render(request, "messages.html", conn, threads=threads, kids=kids(conn))
+            return render(
+                request, "messages.html", conn,
+                threads=threads, kids=kids(conn),
+                audiences=_thread_audiences(conn, me),
+            )
         finally:
             conn.close()
 
@@ -827,12 +1004,17 @@ def create_app() -> FastAPI:
             me = current_parent(request, conn)
             form = await request.form()
             now = datetime.now().isoformat(timespec="seconds")
+            circle_id = None
+            if form.get("circle_id"):
+                circle_id = int(form["circle_id"])
+                if circle_id not in my_circle_ids(conn, me["id"]):
+                    return HTMLResponse("Not a member of that circle.", status_code=403)
             kid_id = int(form["kid_id"]) if form.get("kid_id") else None
             thread_id = db.insert_id(
                 conn,
-                "INSERT INTO threads(subject, kid_id, created_by, created_at) "
-                "VALUES(?, ?, ?, ?)",
-                (form["subject"].strip(), kid_id, me["id"], now),
+                "INSERT INTO threads(subject, circle_id, kid_id, created_by, created_at) "
+                "VALUES(?, ?, ?, ?, ?)",
+                (form["subject"].strip(), circle_id, kid_id, me["id"], now),
             )
             body = (form.get("body") or "").strip()
             if body:
@@ -846,6 +1028,19 @@ def create_app() -> FastAPI:
         finally:
             conn.close()
 
+    def _readable_thread(conn, me, thread_id: int):
+        thread = conn.execute(
+            "SELECT t.*, k.name AS kid_name, k.color AS kid_color, c.name AS circle_name "
+            "FROM threads t LEFT JOIN kids k ON k.id = t.kid_id "
+            "LEFT JOIN circles c ON c.id = t.circle_id WHERE t.id = ?",
+            (thread_id,),
+        ).fetchone()
+        if not thread:
+            return None
+        if thread["circle_id"] and thread["circle_id"] not in my_circle_ids(conn, me["id"]):
+            return None
+        return thread
+
     @app.get("/messages/{thread_id}", response_class=HTMLResponse)
     def thread_view(request: Request, thread_id: int):
         conn = get_conn()
@@ -853,11 +1048,8 @@ def create_app() -> FastAPI:
             redirect = guard(request, conn)
             if redirect:
                 return redirect
-            thread = conn.execute(
-                "SELECT t.*, k.name AS kid_name, k.color AS kid_color FROM threads t "
-                "LEFT JOIN kids k ON k.id = t.kid_id WHERE t.id = ?",
-                (thread_id,),
-            ).fetchone()
+            me = current_parent(request, conn)
+            thread = _readable_thread(conn, me, thread_id)
             if not thread:
                 return HTMLResponse("Thread not found", status_code=404)
             if thread["swap_id"]:
@@ -880,6 +1072,9 @@ def create_app() -> FastAPI:
             if redirect:
                 return redirect
             me = current_parent(request, conn)
+            thread = _readable_thread(conn, me, thread_id)
+            if not thread:
+                return HTMLResponse("Thread not found", status_code=404)
             form = await request.form()
             body = (form.get("body") or "").strip()
             if body:
@@ -903,16 +1098,44 @@ def create_app() -> FastAPI:
             redirect = guard(request, conn)
             if redirect:
                 return redirect
+            me = current_parent(request, conn)
             rows = conn.execute(
                 "SELECT f.*, k.name AS kid_name FROM feeds f "
-                "LEFT JOIN kids k ON k.id = f.kid_id ORDER BY f.id"
+                "LEFT JOIN kids k ON k.id = f.kid_id "
+                "WHERE f.owner_parent_id = ? OR f.owner_parent_id IS NULL "
+                "ORDER BY f.id",
+                (me["id"],),
             ).fetchall()
             base = str(request.base_url).rstrip("/")
             display_token = db.get_setting(conn, "display_token", "")
             return render(
                 request, "feeds.html", conn,
                 feeds=rows, base_url=base, display_token=display_token,
+                kids=kids(conn),
             )
+        finally:
+            conn.close()
+
+    @app.post("/feeds/new")
+    async def feed_create(request: Request):
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            me = current_parent(request, conn)
+            form = await request.form()
+            kid_id = int(form["kid_id"]) if form.get("kid_id") else None
+            if kid_id:
+                kid = conn.execute("SELECT * FROM kids WHERE id = ?", (kid_id,)).fetchone()
+                if kid:
+                    conn.execute(
+                        "INSERT INTO feeds(token, name, kind, kid_id, owner_parent_id) "
+                        "VALUES(?, ?, 'kid', ?, ?)",
+                        (security.new_token(16), f"{kid['name']} — schedule", kid_id, me["id"]),
+                    )
+                    conn.commit()
+            return RedirectResponse("/feeds", status_code=303)
         finally:
             conn.close()
 
@@ -950,34 +1173,34 @@ def create_app() -> FastAPI:
                 )
             today = hub_today(conn)
             week_start = custody.monday_of(today)
-            ctx = week_context(conn, week_start, today)
-            next_ctx = week_context(conn, week_start + timedelta(days=7), today)
-            upcoming_days = (ctx["days"] + next_ctx["days"])
-            # Display shows today plus the next 6 days.
-            upcoming_days = [d for d in upcoming_days if d["date"] >= today][:7]
-            custodian_today = next(
-                (d["custodian"] for d in upcoming_days if d["date"] == today), None
-            )
-            # How long the current custody run lasts.
-            run_end = today
-            if custodian_today:
-                schedule = ctx["schedule"]
+            # The wall display is shared: private events always render as Busy.
+            ctx = week_context(conn, week_start, None, today)
+            next_ctx = week_context(conn, week_start + timedelta(days=7), None, today)
+            upcoming_days = [
+                d for d in (ctx["days"] + next_ctx["days"]) if d["date"] >= today
+            ][:7]
+            banners = []
+            for cid, schedule in ctx["schedules"].items():
+                who = custody.custodian_on(conn, cid, today, schedule)
+                if who is None:
+                    continue
+                run_end = today
                 probe = today
                 for _ in range(30):
                     nxt = probe + timedelta(days=1)
-                    who = custody.custodian_on(conn, nxt, schedule)
-                    if who != custodian_today["id"]:
+                    if custody.custodian_on(conn, cid, nxt, schedule) != who:
                         break
                     probe = nxt
                 run_end = probe
+                banners.append({
+                    "label": ctx["circle_labels"].get(cid, "Kids"),
+                    "custodian": ctx["parent_by_id"].get(who),
+                    "run_end": run_end,
+                    "handoff": schedule["handoff_time"],
+                })
             return render(
                 request, "display.html", conn,
-                days=upcoming_days,
-                today=today,
-                custodian_today=custodian_today,
-                run_end=run_end,
-                handoff=(ctx["schedule"] or {}).get("handoff_time", "18:00"),
-                kids=kids(conn),
+                days=upcoming_days, today=today, banners=banners, kids=kids(conn),
             )
         finally:
             conn.close()
@@ -991,12 +1214,26 @@ def create_app() -> FastAPI:
             redirect = guard(request, conn)
             if redirect:
                 return redirect
-            schedule = custody.load_schedule(conn)
+            me = current_parent(request, conn)
+            members = circle_members(conn)
+            labels = circle_kid_labels(conn)
+            my_ids = my_circle_ids(conn, me["id"])
+            circle_rows = []
+            for c in circles(conn):
+                circle_rows.append({
+                    "id": c["id"],
+                    "name": c["name"],
+                    "label": labels.get(c["id"], ""),
+                    "members": members.get(c["id"], []),
+                    "schedule": custody.load_schedule(conn, c["id"]),
+                    "editable": c["id"] in my_ids,
+                })
             base = str(request.base_url).rstrip("/")
             return render(
                 request, "settings.html", conn,
                 parents_list=parents(conn), kids=kids(conn),
-                schedule=schedule, base_url=base, kid_colors=KID_COLORS,
+                circle_rows=circle_rows, all_circles=circles(conn),
+                base_url=base, kid_colors=KID_COLORS,
                 timezone=db.get_setting(conn, "timezone", "") or "",
             )
         finally:
@@ -1026,30 +1263,42 @@ def create_app() -> FastAPI:
         finally:
             conn.close()
 
-    @app.post("/settings/custody")
-    async def settings_custody(request: Request):
+    @app.post("/settings/custody/{circle_id}")
+    async def settings_custody(request: Request, circle_id: int):
         conn = get_conn()
         try:
             redirect = guard(request, conn)
             if redirect:
                 return redirect
-            form = await request.form()
-            plist = parents(conn)
-            if len(plist) < 2:
+            me = current_parent(request, conn)
+            if circle_id not in my_circle_ids(conn, me["id"]):
+                return HTMLResponse(
+                    "Only that circle's co-parents can change its custody schedule.",
+                    status_code=403,
+                )
+            member_list = circle_members(conn).get(circle_id, [])
+            if len(member_list) < 2:
                 return RedirectResponse("/settings", status_code=303)
+            form = await request.form()
             pattern = form.get("pattern")
             if pattern not in custody.PATTERNS:
                 return RedirectResponse("/settings", status_code=303)
-            first_id = int(form.get("first_parent") or plist[0]["id"])
-            second = next((p["id"] for p in plist if p["id"] != first_id), plist[0]["id"])
+            member_ids = [p["id"] for p in member_list]
+            first_id = int(form.get("first_parent") or member_ids[0])
+            if first_id not in member_ids:
+                first_id = member_ids[0]
+            second_id = next(pid for pid in member_ids if pid != first_id)
             anchor = custody.monday_of(
                 date.fromisoformat(form.get("anchor_date") or date.today().isoformat())
             )
             custom = None
             if pattern == "custom_week":
-                custom = [int(form.get(f"weekday{i}") or first_id) for i in range(7)]
-            cycle = custody.compile_cycle(pattern, first_id, second, custom)
-            custody.save_schedule(conn, pattern, anchor, cycle,
+                custom = []
+                for i in range(7):
+                    val = int(form.get(f"weekday{i}") or first_id)
+                    custom.append(val if val in member_ids else first_id)
+            cycle = custody.compile_cycle(pattern, first_id, second_id, custom)
+            custody.save_schedule(conn, circle_id, pattern, anchor, cycle,
                                   form.get("handoff_time") or "18:00")
             return RedirectResponse("/settings", status_code=303)
         finally:
@@ -1062,16 +1311,21 @@ def create_app() -> FastAPI:
             redirect = guard(request, conn)
             if redirect:
                 return redirect
+            me = current_parent(request, conn)
             form = await request.form()
             name = (form.get("name") or "").strip()
             if name:
                 color = form.get("color") or KID_COLORS[0]
+                circle_id = int(form["circle_id"]) if form.get("circle_id") else None
                 kid_id = db.insert_id(
-                    conn, "INSERT INTO kids(name, color) VALUES(?, ?)", (name, color)
+                    conn,
+                    "INSERT INTO kids(name, color, circle_id) VALUES(?, ?, ?)",
+                    (name, color, circle_id),
                 )
                 conn.execute(
-                    "INSERT INTO feeds(token, name, kind, kid_id) VALUES(?, ?, 'kid', ?)",
-                    (security.new_token(16), f"{name}'s schedule", kid_id),
+                    "INSERT INTO feeds(token, name, kind, kid_id, owner_parent_id) "
+                    "VALUES(?, ?, 'kid', ?, ?)",
+                    (security.new_token(16), f"{name} — schedule", kid_id, me["id"]),
                 )
                 conn.commit()
             return RedirectResponse("/settings", status_code=303)

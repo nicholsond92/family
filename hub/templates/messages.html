@@ -1,14 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>💬 Messages</h1>
-<p class="muted">Conversations about the kids' schedules, kept in one place.</p>
+<p class="muted">Conversations about the kids' schedules. Each co-parent pair has
+its own private space; the household space is visible to all adults.</p>
 
 <div class="card">
   <h2>New conversation</h2>
   <form method="post" action="/messages/new" class="stack">
-    <div class="grid2">
+    <div class="grid3">
       <label>Subject
         <input name="subject" required placeholder="Pickup on Thursday">
+      </label>
+      <label>Who can see it?
+        <select name="circle_id">
+          {% for a in audiences %}
+          <option value="{{ a.value }}">{{ a.label }}</option>
+          {% endfor %}
+        </select>
       </label>
       <label>About <span class="muted small">(optional)</span>
         <select name="kid_id">
@@ -27,6 +35,7 @@
   {% for t in threads %}
   <a class="swaprow" href="/messages/{{ t['id'] }}">
     <span><strong>{{ t['subject'] }}</strong>
+      {% if t['circle_id'] %}<span class="badge pending">🔒 {{ t['circle_name'] }}</span>{% endif %}
       {% if t['kid_name'] %}<span class="dot" style="background: {{ t['kid_color'] }}"></span> {{ t['kid_name'] }}{% endif %}
     </span>
     <span class="muted small">{{ t['n_messages'] }} message{{ 's' if t['n_messages'] != 1 }}

@@ -15,12 +15,12 @@
     <div class="dclock" id="clock">--:--</div>
   </header>
 
-  {% if custodian_today %}
-  <div class="dcustody" style="--pcolor: {{ custodian_today['color'] }}">
-    Kids are with <strong>{{ custodian_today['name'] }}</strong>
-    {% if run_end != today %}through {{ run_end.strftime("%A") }}{% else %}today — handoff around {{ handoff }}{% endif %}
+  {% for b in banners %}
+  <div class="dcustody" style="--pcolor: {{ b.custodian['color'] }}">
+    <strong>{{ b.label }}</strong> with <strong>{{ b.custodian['name'] }}</strong>
+    {% if b.run_end != today %}through {{ b.run_end.strftime("%A") }}{% else %}today — handoff around {{ b.handoff }}{% endif %}
   </div>
-  {% endif %}
+  {% endfor %}
 
   <div class="dweek">
     {% for day in days %}
@@ -29,16 +29,18 @@
         <span>{{ "Today" if day.is_today else day.date.strftime("%a") }}</span>
         <span class="ddaynum">{{ day.date.strftime("%-d") }}</span>
       </div>
-      {% if day.custodian %}
-      <div class="ddaycustody" style="--pcolor: {{ day.custodian['color'] }}">
-        {{ day.custodian['name'] }}{% if day.has_override %} ⇄{% endif %}
+      {% for c in day.custody %}
+      {% if c.custodian %}
+      <div class="ddaycustody" style="--pcolor: {{ c.custodian['color'] }}">
+        {{ c.label }}: {{ c.custodian['name'] }}{% if c.has_override %} ⇄{% endif %}
       </div>
       {% endif %}
+      {% endfor %}
       <div class="ddayevents">
         {% for ev in day.events %}
-        <div class="devent cat-{{ ev.category }}">
+        <div class="devent cat-{{ ev.category if ev.visible else 'other' }}">
           <div class="devtime">{% if ev.all_day %}All day{% else %}{{ ev.start_time | fmt_time }}{% endif %}</div>
-          <div class="devtitle">{{ ev.title }}</div>
+          <div class="devtitle">{% if ev.visible %}{{ ev.title }}{% else %}🔒 Busy{% endif %}</div>
           {% if ev.kids %}
           <div class="devkids">
             {% for k in ev.kids %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}

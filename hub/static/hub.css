@@ -137,6 +137,9 @@ fieldset { border: 1px solid var(--line); border-radius: 8px; }
   color: #fff;
   background: var(--pcolor, var(--muted));
 }
+.custody + .custody { margin-top: 0.15rem; }
+.custkids { opacity: 0.85; font-weight: 500; }
+.evbusy { opacity: 0.75; border-left-style: dashed; }
 .dayevents { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.3rem 0.4rem 0.5rem; flex: 1; }
 .event {
   display: flex;

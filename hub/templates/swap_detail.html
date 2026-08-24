@@ -3,6 +3,7 @@
 <p><a href="/swaps">← All swaps</a></p>
 <div class="card">
   <h1>Swap request <span class="badge {{ swap['status'] }}">{{ swap['status'] }}</span></h1>
+  {% if circle_label %}<p class="muted">About: <strong>{{ circle_label }}</strong></p>{% endif %}
   <p>
     <strong>{{ parent_by_id[swap['range1_parent']]['name'] }}</strong> has the kids
     <strong>{{ swap['range1_start'] | fmt_date }} – {{ swap['range1_end'] | fmt_date }}</strong>
@@ -28,8 +29,8 @@
     <button class="btn primary" name="decision" value="approved" type="submit">✓ Approve — update the schedule</button>
     <button class="btn danger" name="decision" value="declined" type="submit">✗ Decline</button>
   </form>
-  {% elif swap['status'] == 'pending' %}
-  <p class="notice">Waiting for the other parent to approve or decline.</p>
+  {% elif swap['status'] == 'pending' and is_member %}
+  <p class="notice">Waiting for the other co-parent to approve or decline.</p>
   {% endif %}
   {% if can_cancel %}
   <form method="post" action="/swaps/{{ swap['id'] }}/cancel">
@@ -38,8 +39,9 @@
   {% endif %}
 </div>
 
+{% if is_member %}
 <div class="card">
-  <h2>Discussion</h2>
+  <h2>Discussion <span class="muted small">(co-parents only)</span></h2>
   {% for m in messages %}
   <div class="msg">
     <span class="dot" style="background: {{ m['author_color'] }}"></span>
@@ -57,4 +59,8 @@
     <button class="btn" type="submit">Send</button>
   </form>
 </div>
+{% else %}
+<p class="muted small">The discussion on this request is between the circle's
+co-parents.</p>
+{% endif %}
 {% endblock %}

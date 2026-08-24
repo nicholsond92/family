@@ -1,11 +1,18 @@
-"""iCalendar (.ics) feed generation.
+"""iCalendar (.ics) feed generation — permission-aware.
 
 Feeds are plain RFC 5545 calendars served over HTTPS, so any calendar app —
 Google Calendar, Outlook, Apple/iCloud Calendar, Fastmail, Thunderbird — can
 subscribe with a URL and stay in sync without installing anything.
 
+Every feed belongs to a viewer (an adult in the household) or to no one
+(household feeds, e.g. for the wall display). Private events render with full
+details only when the viewer is allowed to see them — that kid's co-parents
+and the event's creator; everyone else gets a "Busy" block that still
+reserves the time.
+
 Timed events are emitted as floating local times (no TZID), which is correct
-for a family living in one timezone. Custody blocks are all-day events.
+for a family living in one timezone. Custody blocks are all-day events,
+one stream per co-parenting circle, labeled with that circle's kids.
 """
 
 from datetime import date, datetime, timedelta
@@ -86,11 +93,17 @@ def _dtstamp() -> str:
     return datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
 
-def event_vevent(ev, kid_names: list[str]) -> list[str]:
-    emoji = CATEGORY_EMOJI.get(ev["category"], "📌")
-    title = f"{emoji} {ev['title']}"
-    if kid_names:
-        title += f" ({', '.join(kid_names)})"
+def event_vevent(ev, kid_names: list[str], visible: bool) -> list[str]:
+    """One VEVENT; a private event the viewer can't see becomes a Busy block."""
+    if visible:
+        emoji = CATEGORY_EMOJI.get(ev["category"], "📌")
+        title = f"{emoji} {ev['title']}"
+        if kid_names:
+            title += f" ({', '.join(kid_names)})"
+    else:
+        title = "🔒 Busy"
+        if kid_names:
+            title += f" ({', '.join(kid_names)})"
     d = date.fromisoformat(ev["date"])
     lines = [
         "BEGIN:VEVENT",
@@ -105,23 +118,27 @@ def event_vevent(ev, kid_names: list[str]) -> list[str]:
         lines.append(f"DTSTART:{_fmt_dt(d, ev['start_time'])}")
         end_time = ev["end_time"] or ev["start_time"]
         lines.append(f"DTEND:{_fmt_dt(d, end_time)}")
-    if ev["location"]:
-        lines.append(f"LOCATION:{ics_escape(ev['location'])}")
-    if ev["notes"]:
-        lines.append(f"DESCRIPTION:{ics_escape(ev['notes'])}")
-    lines.append(f"CATEGORIES:{ics_escape(ev['category'].capitalize())}")
+    if visible:
+        if ev["location"]:
+            lines.append(f"LOCATION:{ics_escape(ev['location'])}")
+        if ev["notes"]:
+            lines.append(f"DESCRIPTION:{ics_escape(ev['notes'])}")
+        lines.append(f"CATEGORIES:{ics_escape(ev['category'].capitalize())}")
+    else:
+        lines.append("DESCRIPTION:Details are private.")
     lines.append("END:VEVENT")
     return lines
 
 
-def custody_vevent(block, parent_name: str, handoff_time: str) -> list[str]:
-    summary = f"🏠 Kids with {parent_name}"
-    desc = f"Custody: {parent_name} has the kids. Handoff around {handoff_time}."
+def custody_vevent(circle_id: int, block, parent_name: str, kid_label: str,
+                   handoff_time: str) -> list[str]:
+    summary = f"🏠 {kid_label} with {parent_name}" if kid_label else f"🏠 Kids with {parent_name}"
+    desc = f"Custody: {parent_name} has {kid_label or 'the kids'}. Handoff around {handoff_time}."
     if block["has_override"]:
         desc += " Includes an approved schedule swap."
     return [
         "BEGIN:VEVENT",
-        f"UID:custody-{block['start'].isoformat()}-{block['parent_id']}@family-hub",
+        f"UID:custody-{circle_id}-{block['start'].isoformat()}-{block['parent_id']}@family-hub",
         f"DTSTAMP:{_dtstamp()}",
         f"SUMMARY:{ics_escape(summary)}",
         f"DTSTART;VALUE=DATE:{_fmt_date(block['start'])}",
@@ -150,11 +167,41 @@ def feed_events(conn, kind: str, kid_id: int | None, start: date, end: date):
     ).fetchall()
 
 
+def viewer_allowed_parents(conn) -> dict[int, set[int]]:
+    """For each event id: the set of parent ids allowed to see full details
+    of that event when it is private (kids' co-parents + creator)."""
+    circle_members: dict[int, set[int]] = {}
+    for row in conn.execute("SELECT circle_id, parent_id FROM circle_parents"):
+        circle_members.setdefault(row["circle_id"], set()).add(row["parent_id"])
+    allowed: dict[int, set[int]] = {}
+    for row in conn.execute(
+        "SELECT ek.event_id, k.circle_id FROM event_kids ek "
+        "JOIN kids k ON k.id = ek.kid_id"
+    ):
+        if row["circle_id"]:
+            allowed.setdefault(row["event_id"], set()).update(
+                circle_members.get(row["circle_id"], set())
+            )
+    for row in conn.execute("SELECT id, created_by FROM events"):
+        if row["created_by"]:
+            allowed.setdefault(row["id"], set()).add(row["created_by"])
+    return allowed
+
+
+def event_visible_to(ev, viewer_id: int | None, allowed: dict[int, set[int]]) -> bool:
+    if not ev["private"]:
+        return True
+    if viewer_id is None:
+        return False
+    return viewer_id in allowed.get(ev["id"], set())
+
+
 def generate_feed(conn, feed) -> str:
-    """Build the full .ics text for a feed row."""
+    """Build the full .ics text for a feed row, masked for its owner."""
     today = date.today()
     start = today - timedelta(days=30)
     end = today + timedelta(days=365)
+    viewer_id = feed["owner_parent_id"]
     parents = {p["id"]: p["name"] for p in conn.execute("SELECT id, name FROM parents")}
     kid_names_by_event: dict[int, list[str]] = {}
     for row in conn.execute(
@@ -162,17 +209,37 @@ def generate_feed(conn, feed) -> str:
         "ORDER BY k.name"
     ):
         kid_names_by_event.setdefault(row["event_id"], []).append(row["name"])
+    allowed = viewer_allowed_parents(conn)
 
     vevents = []
     for ev in feed_events(conn, feed["kind"], feed["kid_id"], start, end):
-        vevents.append(event_vevent(ev, kid_names_by_event.get(ev["id"], [])))
+        visible = event_visible_to(ev, viewer_id, allowed)
+        vevents.append(
+            event_vevent(ev, kid_names_by_event.get(ev["id"], []), visible)
+        )
 
-    if feed["kind"] in ("all", "custody", "kid"):
-        schedule = custody.load_schedule(conn)
-        if schedule:
-            handoff = schedule["handoff_time"]
-            for block in custody.custody_blocks(conn, start, end):
-                pname = parents.get(block["parent_id"], "parent")
-                vevents.append(custody_vevent(block, pname, handoff))
+    # Custody blocks for every circle (never private). A kid-scoped feed only
+    # includes that kid's circle.
+    kid_circle = None
+    if feed["kind"] == "kid" and feed["kid_id"]:
+        row = conn.execute(
+            "SELECT circle_id FROM kids WHERE id = ?", (feed["kid_id"],)
+        ).fetchone()
+        kid_circle = row["circle_id"] if row else None
+    kids_by_circle: dict[int, list[str]] = {}
+    for row in conn.execute(
+        "SELECT circle_id, name FROM kids WHERE circle_id IS NOT NULL ORDER BY name"
+    ):
+        kids_by_circle.setdefault(row["circle_id"], []).append(row["name"])
+    for circle_id, schedule in custody.load_schedules(conn).items():
+        if kid_circle is not None and circle_id != kid_circle:
+            continue
+        kid_label = " & ".join(kids_by_circle.get(circle_id, []))
+        for block in custody.custody_blocks(conn, circle_id, start, end):
+            pname = parents.get(block["parent_id"], "parent")
+            vevents.append(
+                custody_vevent(circle_id, block, pname, kid_label,
+                               schedule["handoff_time"])
+            )
 
     return build_ics(feed["name"], vevents)
