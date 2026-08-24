@@ -6,6 +6,7 @@ import sys
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request
@@ -45,6 +46,20 @@ def _db_hints(exc_text: str) -> list[str]:
     """Human-readable causes for common database connection failures."""
     hints = []
     low = exc_text.lower()
+    host = ""
+    try:
+        host = urlsplit(db.database_url()).hostname or ""
+    except ValueError:
+        pass
+    if host.startswith("db.") and host.endswith(".supabase.co"):
+        hints.append(
+            "The connection string uses Supabase's DIRECT hostname "
+            f"({host}), which is IPv6-only — serverless platforms can't reach "
+            "it, whatever the port. In Supabase click Connect and copy the "
+            "'Transaction pooler' URI instead: its host looks like "
+            "aws-1-<region>.pooler.supabase.com and its username includes "
+            "your project ref (postgres.<ref>)."
+        )
     if not db.database_url():
         hints.append(
             "No Postgres database is configured. On serverless hosts (Vercel), "
@@ -95,10 +110,22 @@ def _db_hints(exc_text: str) -> list[str]:
 def _db_error_page(exc: Exception) -> HTMLResponse:
     items = "".join(f"<li>{html.escape(h)}</li>" for h in _db_hints(str(exc)))
     detail = html.escape(f"{type(exc).__name__}: {exc}")
+    tried = ""
+    try:
+        parts = urlsplit(db.database_url())
+        if parts.hostname:
+            tried = (
+                "<p>Configured database host: "
+                f"<code>{html.escape(parts.hostname)}:{parts.port or 5432}"
+                "</code></p>"
+            )
+    except ValueError:
+        pass
     return HTMLResponse(
         "<div style='font-family:sans-serif;max-width:640px;margin:4rem auto'>"
         "<h1>🏠 Family Hub can't reach its database</h1>"
         f"<p style='color:#a11622'><code>{detail}</code></p>"
+        f"{tried}"
         f"<p>Likely fix:</p><ul>{items}</ul>"
         "<p>After changing an environment variable, redeploy for it to take "
         "effect.</p></div>",

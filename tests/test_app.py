@@ -284,6 +284,17 @@ def test_unreachable_database_shows_diagnostic_page(monkeypatch):
     assert "Transaction pooler" in r.text or "HUB_DATABASE_URL" in r.text
 
 
+def test_direct_supabase_hostname_gets_named_in_diagnostics(monkeypatch):
+    from hub.app import _db_hints
+
+    monkeypatch.setenv(
+        "HUB_DATABASE_URL", "postgresql://postgres:p@db.abcdefgh.supabase.co:6543/postgres"
+    )
+    hints = " ".join(_db_hints("Cannot assign requested address"))
+    assert "DIRECT hostname" in hints
+    assert "Transaction pooler" in hints
+
+
 def test_repeating_event_creates_series(env, client):
     do_setup(client)
     first = date.today() + timedelta(days=2)
