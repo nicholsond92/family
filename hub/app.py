@@ -1,5 +1,8 @@
 """Family Hub web application (FastAPI)."""
 
+import html
+import sqlite3
+import sys
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -21,21 +24,96 @@ CATEGORIES = ["school", "activity", "medical", "other"]
 
 
 def _session_secret() -> str:
-    conn = db.connect()
     try:
-        secret = db.get_setting(conn, "session_secret")
-        if not secret:
-            secret = security.new_token(32)
-            db.set_setting(conn, "session_secret", secret)
-        return secret
-    finally:
-        conn.close()
+        conn = db.connect()
+        try:
+            secret = db.get_setting(conn, "session_secret")
+            if not secret:
+                secret = security.new_token(32)
+                db.set_setting(conn, "session_secret", secret)
+            return secret
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 — DB down at cold start
+        # Don't crash at import: run with an ephemeral secret so requests can
+        # still reach the diagnostic error page below.
+        print(f"family-hub: database unavailable at startup: {exc!r}", file=sys.stderr)
+        return security.new_token(32)
+
+
+def _db_hints(exc_text: str) -> list[str]:
+    """Human-readable causes for common database connection failures."""
+    hints = []
+    low = exc_text.lower()
+    if not db.database_url():
+        hints.append(
+            "No Postgres database is configured. On serverless hosts (Vercel), "
+            "set the HUB_DATABASE_URL environment variable to your Supabase "
+            "connection string (Project Settings → Environment Variables) and "
+            "redeploy — SQLite can't be used there because the filesystem is "
+            "read-only."
+        )
+    if "password" in low and "authentication" in low:
+        hints.append(
+            "The database password in the connection string is wrong — or still "
+            "the [YOUR-PASSWORD] placeholder. If the password has special "
+            "characters, URL-encode them (@ → %40, # → %23, etc.)."
+        )
+    if "tenant or user not found" in low:
+        hints.append(
+            "With Supabase's pooler the username must include the project ref "
+            "(e.g. postgres.abcdefghijk). Copy the full Transaction pooler "
+            "string from Supabase → Connect rather than editing it by hand."
+        )
+    if any(w in low for w in ("unreachable", "timed out", "timeout", "could not translate")):
+        hints.append(
+            "Use Supabase's Transaction pooler connection string (port 6543), "
+            "not the direct connection (port 5432) — serverless platforms "
+            "usually can't reach the direct address."
+        )
+    if "unable to open database file" in low or "readonly database" in low:
+        hints.append(
+            "The app fell back to SQLite on a read-only filesystem. Set "
+            "HUB_DATABASE_URL to your Supabase Postgres connection string."
+        )
+    if not hints:
+        hints.append(
+            "Check that the database is running and that the connection string "
+            "in HUB_DATABASE_URL (or POSTGRES_URL) is exactly the one your "
+            "provider shows."
+        )
+    return hints
+
+
+def _db_error_page(exc: Exception) -> HTMLResponse:
+    items = "".join(f"<li>{html.escape(h)}</li>" for h in _db_hints(str(exc)))
+    detail = html.escape(f"{type(exc).__name__}: {exc}")
+    return HTMLResponse(
+        "<div style='font-family:sans-serif;max-width:640px;margin:4rem auto'>"
+        "<h1>🏠 Family Hub can't reach its database</h1>"
+        f"<p style='color:#a11622'><code>{detail}</code></p>"
+        f"<p>Likely fix:</p><ul>{items}</ul>"
+        "<p>After changing an environment variable, redeploy for it to take "
+        "effect.</p></div>",
+        status_code=500,
+    )
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Family Hub")
     app.add_middleware(SessionMiddleware, secret_key=_session_secret(), max_age=60 * 60 * 24 * 90)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+    async def _db_error_handler(request: Request, exc: Exception):
+        return _db_error_page(exc)
+
+    app.add_exception_handler(sqlite3.Error, _db_error_handler)
+    try:
+        import psycopg
+
+        app.add_exception_handler(psycopg.Error, _db_error_handler)
+    except ImportError:
+        pass
 
     templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
     templates.env.globals["categories"] = CATEGORIES

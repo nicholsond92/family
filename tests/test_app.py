@@ -272,6 +272,18 @@ def test_household_timezone_setting(env, client):
     conn.close()
 
 
+def test_unreachable_database_shows_diagnostic_page(monkeypatch):
+    # A dead Postgres must not crash the function at import; requests get a
+    # readable diagnostic page instead.
+    monkeypatch.setenv("HUB_DATABASE_URL", "postgresql://u:p@127.0.0.1:59999/nope")
+    app = create_app()
+    c = TestClient(app, raise_server_exceptions=False)
+    r = c.get("/")
+    assert r.status_code == 500
+    assert "can't reach its database" in r.text
+    assert "Transaction pooler" in r.text or "HUB_DATABASE_URL" in r.text
+
+
 def test_repeating_event_creates_series(env, client):
     do_setup(client)
     first = date.today() + timedelta(days=2)
