@@ -140,6 +140,10 @@ def create_app() -> FastAPI:
         date.fromisoformat(d) if isinstance(d, str) else d
     ).strftime("%a %b %-d")
 
+    @app.get("/health")
+    def health():
+        return {"ok": True}
+
     # -------------------------------------------------------------------- setup
 
     @app.get("/setup", response_class=HTMLResponse)

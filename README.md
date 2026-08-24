@@ -50,13 +50,36 @@ link (shown in Settings) to set their own password.
 Environment variables (all optional): `HUB_HOST`, `HUB_PORT`, `HUB_DB`
 (path to the SQLite database, default `./hub.db`).
 
-### Making feeds reachable
+### Deploying (making it reachable from anywhere)
 
 For Google/Outlook/iCloud to pull the feeds — and for the wall display and
 your co-parent to reach the hub — it needs to be accessible over HTTPS from
-the internet. Easy options: run it on a small VPS behind Caddy (automatic
-HTTPS), or expose it from a home server with Cloudflare Tunnel or Tailscale
-Funnel. Feed URLs contain unguessable tokens; share them only with family.
+the internet. The repo ships with a `Dockerfile`, so any container platform
+works. Two things every deployment needs:
+
+1. **A persistent disk/volume mounted at `/data`** — the SQLite database
+   lives at `/data/hub.db` (set via `HUB_DB`). Without a volume, a redeploy
+   wipes your schedule.
+2. **HTTPS**, which all the platforms below provide automatically.
+
+Platform quick-starts:
+
+- **Railway**: New Project → Deploy from GitHub repo (the Dockerfile is
+  auto-detected) → add a **Volume** mounted at `/data` → Settings →
+  Networking → Generate Domain. Railway injects `PORT` automatically.
+- **Render**: New → **Blueprint**, point it at this repo — `render.yaml`
+  configures the service and its persistent disk. (Requires the Starter
+  plan; Render's free tier has no persistent disk.)
+- **Fly.io**: `fly launch` (uses the included `fly.toml`), then
+  `fly volumes create hub_data --size 1` and `fly deploy`.
+- **Any VPS / home server with Docker**:
+  `docker build -t family-hub . && docker run -d -p 8000:8000 -v hub-data:/data family-hub`
+  behind Caddy or a Cloudflare Tunnel for HTTPS.
+
+Not a fit: serverless platforms like Vercel or Netlify — they have no
+persistent disk for SQLite and spin down between requests.
+
+Feed URLs contain unguessable tokens; share them only with family.
 
 Note: Google Calendar refreshes subscribed iCal feeds on its own schedule
 (typically every few hours up to ~a day) — that's a Google-side limit common

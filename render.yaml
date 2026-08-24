@@ -1,0 +1,14 @@
+# Render blueprint — deploy with "New > Blueprint" pointing at this repo.
+# The persistent disk keeps the SQLite database across deploys and restarts.
+services:
+  - type: web
+    name: family-hub
+    runtime: docker
+    plan: starter
+    disk:
+      name: hub-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: HUB_DB
+        value: /data/hub.db

@@ -12,5 +12,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "hub.app:app",
         host=os.environ.get("HUB_HOST", "0.0.0.0"),
-        port=int(os.environ.get("HUB_PORT", "8000")),
+        # Cloud platforms (Railway, Render, Heroku-likes) inject PORT.
+        port=int(os.environ.get("HUB_PORT") or os.environ.get("PORT") or "8000"),
     )
