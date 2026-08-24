@@ -1257,10 +1257,25 @@ def create_app() -> FastAPI:
                         break
                     probe = nxt
                 run_end = probe
+                # The exchange is an event: the next parent takes over on the
+                # first day of their block, at the handoff time.
+                switch_date = run_end + timedelta(days=1)
+                next_who = custody.custodian_on(conn, cid, switch_date, schedule)
+                next_custodian = (
+                    ctx["parent_by_id"].get(next_who)
+                    if next_who is not None and next_who != who else None
+                )
+                if switch_date == today + timedelta(days=1):
+                    switch_text = "tomorrow"
+                elif (switch_date - today).days <= 6:
+                    switch_text = switch_date.strftime("%A")
+                else:
+                    switch_text = switch_date.strftime("%A, %b %-d")
                 banners.append({
                     "label": ctx["circle_labels"].get(cid, "Kids"),
                     "custodian": ctx["parent_by_id"].get(who),
-                    "run_end": run_end,
+                    "next_custodian": next_custodian,
+                    "switch_text": switch_text,
                     "handoff": schedule["handoff_time"],
                 })
             return render(

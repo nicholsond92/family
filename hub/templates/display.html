@@ -36,7 +36,8 @@
       <span class="dcdot" style="background: {{ b.custodian['color'] }}"></span>
       <strong>{{ b.label }}</strong>&nbsp;{{ 'are' if '&' in b.label else 'is' }} with
       <strong>&nbsp;{{ b.custodian['name'] | first_name }}</strong>
-      {% if b.run_end != today %}&nbsp;through {{ b.run_end.strftime("%A") }}{% else %}&nbsp;today · handoff around {{ b.handoff | fmt_time }}{% endif %}
+      {% if b.next_custodian %}&nbsp;· switching to {{ b.next_custodian['name'] | first_name }}
+      {{ b.switch_text }} at {{ b.handoff | fmt_time }}{% endif %}
     </div>
     {% endfor %}
   </div>
