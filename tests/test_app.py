@@ -1,5 +1,13 @@
-"""End-to-end flow: setup → events → feeds → invite → swap → messages → display."""
+"""End-to-end flow: setup → events → feeds → invite → swap → messages → display.
 
+Runs against SQLite by default. To run the same suite against Postgres
+(validating the Supabase/Vercel path), point HUB_DATABASE_URL at a throwaway
+Postgres database — its public schema is DROPPED before each test:
+
+    HUB_DATABASE_URL=postgresql://user@host:port/db pytest tests/test_app.py
+"""
+
+import os
 from datetime import date, timedelta
 
 import pytest
@@ -11,7 +19,16 @@ from hub.app import create_app
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    monkeypatch.setenv("HUB_DB", str(tmp_path / "app.db"))
+    url = os.environ.get("HUB_DATABASE_URL", "")
+    if url.startswith(("postgres://", "postgresql://")):
+        import psycopg
+
+        with psycopg.connect(url) as c:
+            c.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public")
+            c.commit()
+        db._initialized_targets.discard(url)
+    else:
+        monkeypatch.setenv("HUB_DB", str(tmp_path / "app.db"))
     app = create_app()
     return app
 

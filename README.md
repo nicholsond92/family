@@ -54,30 +54,36 @@ Environment variables (all optional): `HUB_HOST`, `HUB_PORT`, `HUB_DB`
 
 For Google/Outlook/iCloud to pull the feeds — and for the wall display and
 your co-parent to reach the hub — it needs to be accessible over HTTPS from
-the internet. The repo ships with a `Dockerfile`, so any container platform
-works. Two things every deployment needs:
+the internet. Storage is pluggable: **SQLite** (default, needs a disk) or
+**Postgres** via the `HUB_DATABASE_URL` environment variable (required on
+serverless hosts, which have no persistent disk). Tables are created
+automatically on first request — no migrations to run.
 
-1. **A persistent disk/volume mounted at `/data`** — the SQLite database
-   lives at `/data/hub.db` (set via `HUB_DB`). Without a volume, a redeploy
-   wipes your schedule.
-2. **HTTPS**, which all the platforms below provide automatically.
+#### Vercel + Supabase (serverless)
 
-Platform quick-starts:
+1. **Supabase**: create a project, then copy the **Transaction pooler**
+   connection string (Connect → Transaction pooler, port 6543) with your
+   database password filled in.
+2. **Vercel**: import this GitHub repo (the included `vercel.json` and
+   `api/index.py` configure the Python function), and add one environment
+   variable: `HUB_DATABASE_URL` = that connection string.
+3. Deploy. Open the Vercel URL and run the setup wizard.
 
-- **Railway**: New Project → Deploy from GitHub repo (the Dockerfile is
-  auto-detected) → add a **Volume** mounted at `/data` → Settings →
-  Networking → Generate Domain. Railway injects `PORT` automatically.
-- **Render**: New → **Blueprint**, point it at this repo — `render.yaml`
-  configures the service and its persistent disk. (Requires the Starter
-  plan; Render's free tier has no persistent disk.)
-- **Fly.io**: `fly launch` (uses the included `fly.toml`), then
-  `fly volumes create hub_data --size 1` and `fly deploy`.
-- **Any VPS / home server with Docker**:
+#### Container platforms (SQLite on a volume)
+
+The repo also ships a `Dockerfile`; mount a volume at `/data` so the SQLite
+database (`HUB_DB=/data/hub.db`) survives redeploys:
+
+- **Railway**: Deploy from GitHub repo → add a **Volume** at `/data` →
+  Generate Domain. (`PORT` is injected automatically.)
+- **Render**: New → **Blueprint** → this repo; `render.yaml` sets up the
+  service and persistent disk (needs the Starter plan).
+- **Fly.io**: `fly launch` (uses `fly.toml`), `fly volumes create hub_data
+  --size 1`, `fly deploy`.
+- **Any VPS / home server**:
   `docker build -t family-hub . && docker run -d -p 8000:8000 -v hub-data:/data family-hub`
-  behind Caddy or a Cloudflare Tunnel for HTTPS.
-
-Not a fit: serverless platforms like Vercel or Netlify — they have no
-persistent disk for SQLite and spin down between requests.
+  behind Caddy or a Cloudflare Tunnel for HTTPS. (These platforms can also
+  use Supabase instead — just set `HUB_DATABASE_URL`.)
 
 Feed URLs contain unguessable tokens; share them only with family.
 

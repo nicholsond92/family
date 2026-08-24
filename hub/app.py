@@ -23,7 +23,6 @@ CATEGORIES = ["school", "activity", "medical", "other"]
 def _session_secret() -> str:
     conn = db.connect()
     try:
-        db.init_db(conn)
         secret = db.get_setting(conn, "session_secret")
         if not secret:
             secret = security.new_token(32)
@@ -45,9 +44,7 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------ helpers
 
     def get_conn():
-        conn = db.connect()
-        db.init_db(conn)
-        return conn
+        return db.connect()
 
     def parents(conn):
         return conn.execute("SELECT * FROM parents ORDER BY id").fetchall()
@@ -166,7 +163,8 @@ def create_app() -> FastAPI:
             db.set_setting(conn, "household_name", form.get("household_name") or "Our Family")
             db.set_setting(conn, "display_token", security.new_token(16))
 
-            cur = conn.execute(
+            parent1_id = db.insert_id(
+                conn,
                 "INSERT INTO parents(name, email, color, password_hash) VALUES(?, ?, ?, ?)",
                 (
                     form["parent1_name"].strip(),
@@ -175,9 +173,9 @@ def create_app() -> FastAPI:
                     security.hash_password(form["parent1_password"]),
                 ),
             )
-            parent1_id = cur.lastrowid
             invite = security.new_token(16)
-            cur = conn.execute(
+            parent2_id = db.insert_id(
+                conn,
                 "INSERT INTO parents(name, email, color, invite_token) VALUES(?, ?, ?, ?)",
                 (
                     form["parent2_name"].strip(),
@@ -186,17 +184,17 @@ def create_app() -> FastAPI:
                     invite,
                 ),
             )
-            parent2_id = cur.lastrowid
 
             kid_ids = []
             for i in range(1, 7):
                 name = (form.get(f"kid{i}_name") or "").strip()
                 if name:
-                    cur = conn.execute(
+                    new_kid_id = db.insert_id(
+                        conn,
                         "INSERT INTO kids(name, color) VALUES(?, ?)",
                         (name, KID_COLORS[(i - 1) % len(KID_COLORS)]),
                     )
-                    kid_ids.append((cur.lastrowid, name))
+                    kid_ids.append((new_kid_id, name))
 
             pattern = form.get("pattern") or ""
             if pattern in custody.PATTERNS:
@@ -382,7 +380,8 @@ def create_app() -> FastAPI:
         conn.execute("DELETE FROM event_kids WHERE event_id = ?", (event_id,))
         for kid_id in kid_ids:
             conn.execute(
-                "INSERT OR IGNORE INTO event_kids(event_id, kid_id) VALUES(?, ?)",
+                "INSERT INTO event_kids(event_id, kid_id) VALUES(?, ?) "
+                "ON CONFLICT DO NOTHING",
                 (event_id, kid_id),
             )
 
@@ -407,7 +406,8 @@ def create_app() -> FastAPI:
                     d += timedelta(weeks=1)
             now = datetime.now().isoformat(timespec="seconds")
             for d in dates:
-                cur = conn.execute(
+                event_id = db.insert_id(
+                    conn,
                     "INSERT INTO events(title, category, date, start_time, end_time, all_day, "
                     "location, notes, series_id, created_by, created_at) "
                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -417,7 +417,7 @@ def create_app() -> FastAPI:
                         series_id, me["id"], now,
                     ),
                 )
-                _set_event_kids(conn, cur.lastrowid, f["kid_ids"])
+                _set_event_kids(conn, event_id, f["kid_ids"])
             conn.commit()
             return RedirectResponse(f"/?start={f['date']}", status_code=303)
         finally:
@@ -532,7 +532,8 @@ def create_app() -> FastAPI:
             range1_parent = int(form["range1_parent"])
             others = [p for p in parents(conn) if p["id"] != range1_parent]
             range2_parent = others[0]["id"] if (r2s and r2e and others) else None
-            cur = conn.execute(
+            swap_id = db.insert_id(
+                conn,
                 "INSERT INTO swaps(created_by, status, reason, range1_start, range1_end, "
                 "range1_parent, range2_start, range2_end, range2_parent, created_at) "
                 "VALUES(?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -543,13 +544,12 @@ def create_app() -> FastAPI:
                     range2_parent, now,
                 ),
             )
-            swap_id = cur.lastrowid
-            cur = conn.execute(
+            thread_id = db.insert_id(
+                conn,
                 "INSERT INTO threads(subject, swap_id, created_by, created_at) "
                 "VALUES(?, ?, ?, ?)",
                 (f"Swap request #{swap_id}", swap_id, me["id"], now),
             )
-            thread_id = cur.lastrowid
             conn.execute("UPDATE swaps SET thread_id = ? WHERE id = ?", (thread_id, swap_id))
             if form.get("reason"):
                 conn.execute(
@@ -716,12 +716,12 @@ def create_app() -> FastAPI:
             form = await request.form()
             now = datetime.now().isoformat(timespec="seconds")
             kid_id = int(form["kid_id"]) if form.get("kid_id") else None
-            cur = conn.execute(
+            thread_id = db.insert_id(
+                conn,
                 "INSERT INTO threads(subject, kid_id, created_by, created_at) "
                 "VALUES(?, ?, ?, ?)",
                 (form["subject"].strip(), kid_id, me["id"], now),
             )
-            thread_id = cur.lastrowid
             body = (form.get("body") or "").strip()
             if body:
                 conn.execute(
@@ -954,12 +954,12 @@ def create_app() -> FastAPI:
             name = (form.get("name") or "").strip()
             if name:
                 color = form.get("color") or KID_COLORS[0]
-                cur = conn.execute(
-                    "INSERT INTO kids(name, color) VALUES(?, ?)", (name, color)
+                kid_id = db.insert_id(
+                    conn, "INSERT INTO kids(name, color) VALUES(?, ?)", (name, color)
                 )
                 conn.execute(
                     "INSERT INTO feeds(token, name, kind, kid_id) VALUES(?, ?, 'kid', ?)",
-                    (security.new_token(16), f"{name}'s schedule", cur.lastrowid),
+                    (security.new_token(16), f"{name}'s schedule", kid_id),
                 )
                 conn.commit()
             return RedirectResponse("/settings", status_code=303)

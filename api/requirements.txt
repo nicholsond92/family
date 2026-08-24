@@ -1,0 +1,7 @@
+# Minimal deps for the Vercel function (the FastDirect sync's scraping deps
+# aren't needed in the web app and would bloat the bundle).
+fastapi>=0.110
+jinja2>=3.1
+python-multipart>=0.0.9
+itsdangerous>=2.1
+psycopg[binary]>=3.1
