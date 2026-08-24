@@ -67,10 +67,20 @@
     </div>
     <div class="row">
       {% if p['id'] == parent['id'] %}
-      <form method="post" action="/settings/my-color" class="row" style="margin:0">
-        <input type="color" name="color" value="{{ p['color'] }}" title="My color">
-        <button class="btn" type="submit">Set color</button>
-      </form>
+      <span class="swatches">
+        <form method="post" action="/settings/my-color" class="swatches" style="margin:0">
+          {% for c in palette %}
+          <button class="swatch {% if p['color'] == c %}selected{% endif %}" type="submit"
+                  name="color" value="{{ c }}" title="Pick {{ c }}"
+                  style="background: {{ c }}"></button>
+          {% endfor %}
+        </form>
+        <span class="swatchdivider"></span>
+        <form method="post" action="/settings/my-color" style="margin:0">
+          <input type="color" name="color" value="{{ p['color'] }}" title="Custom color"
+                 onchange="this.form.submit()">
+        </form>
+      </span>
       {% endif %}
       {% if p['invite_token'] and not p['password_hash'] %}
       <input readonly value="{{ base_url }}/invite/{{ p['invite_token'] }}" onclick="this.select()">
@@ -100,10 +110,20 @@
       {% endif %}{% endfor %}
     </div>
     <div class="row" style="margin:0">
-      <form method="post" action="/settings/kids/{{ k['id'] }}/color" class="row" style="margin:0">
-        <input type="color" name="color" value="{{ k['color'] }}" title="{{ k['name'] }}'s color">
-        <button class="btn" type="submit">Set color</button>
-      </form>
+      <span class="swatches">
+        <form method="post" action="/settings/kids/{{ k['id'] }}/color" class="swatches" style="margin:0">
+          {% for c in palette %}
+          <button class="swatch {% if k['color'] == c %}selected{% endif %}" type="submit"
+                  name="color" value="{{ c }}" title="Pick {{ c }}"
+                  style="background: {{ c }}"></button>
+          {% endfor %}
+        </form>
+        <span class="swatchdivider"></span>
+        <form method="post" action="/settings/kids/{{ k['id'] }}/color" style="margin:0">
+          <input type="color" name="color" value="{{ k['color'] }}" title="Custom color"
+                 onchange="this.form.submit()">
+        </form>
+      </span>
       <form method="post" action="/settings/kids/{{ k['id'] }}/delete"
             onsubmit="return confirm('Remove {{ k['name'] }}?')">
         <button class="btn danger" type="submit">Remove</button>
@@ -116,7 +136,14 @@
     <select name="circle_id" required>
       {% for c in all_circles %}<option value="{{ c['id'] }}">{{ c['name'] }}</option>{% endfor %}
     </select>
-    <input type="color" name="color" value="{{ kid_colors[kids | length % (kid_colors | length)] }}" title="Color">
+    <span class="swatches">
+      {% for c in palette %}
+      <label class="swatch" style="background: {{ c }}" title="Pick {{ c }}">
+        <input type="radio" name="color" value="{{ c }}"
+               {% if loop.index0 == kids | length % (palette | length) %}checked{% endif %}>
+      </label>
+      {% endfor %}
+    </span>
     <button class="btn" type="submit">Add kid</button>
   </form>
 </div>

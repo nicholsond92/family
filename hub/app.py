@@ -29,6 +29,11 @@ BASE_DIR = Path(__file__).resolve().parent
 
 KID_COLORS = ["#e63946", "#f4a261", "#2a9d8f", "#457b9d", "#8d5bd4", "#d81b8c", "#3a86ff", "#588157"]
 PARENT_COLORS = ["#3a86ff", "#e63946", "#2a9d8f", "#8d5bd4", "#f4a261", "#d81b8c"]
+# One-click preset swatches shown in Settings (custom hex stays available too).
+PALETTE = [
+    "#e63946", "#f4a261", "#f5b942", "#588157", "#2a9d8f",
+    "#3a86ff", "#457b9d", "#8d5bd4", "#d81b8c", "#64748b",
+]
 CATEGORIES = ["school", "activity", "medical", "other"]
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -1296,7 +1301,7 @@ def create_app() -> FastAPI:
                 request, "settings.html", conn,
                 parents_list=parents(conn), kids=kids(conn),
                 circle_rows=circle_rows, all_circles=circles(conn),
-                base_url=base, kid_colors=KID_COLORS,
+                base_url=base, kid_colors=KID_COLORS, palette=PALETTE,
                 timezone=db.get_setting(conn, "timezone", "") or "",
                 weather_lat=db.get_setting(conn, "weather_lat", "") or "",
                 weather_lon=db.get_setting(conn, "weather_lon", "") or "",

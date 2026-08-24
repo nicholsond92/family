@@ -130,6 +130,24 @@ input, select, textarea {
 textarea { height: auto; padding: 0.55rem 0.7rem; resize: vertical; }
 input[type="checkbox"] { height: 16px; width: 16px; accent-color: var(--primary); }
 input[type="color"] { width: 44px; padding: 2px 3px; cursor: pointer; }
+
+/* One-click color swatches (each is a submit button). */
+.swatches { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.swatch:hover { transform: scale(1.18); }
+.swatch.selected { outline: 2px solid var(--foreground); outline-offset: 2px; }
+.swatchdivider { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+label.swatch { display: inline-block; }
+label.swatch input { position: absolute; opacity: 0; width: 0; height: 0; }
+label.swatch:has(input:checked) { outline: 2px solid var(--foreground); outline-offset: 2px; }
 input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: none;
   border-color: var(--primary);
