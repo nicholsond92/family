@@ -4,12 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ household }} — display</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/display.css">
 </head>
 <body class="displaybody">
   <header class="dheader">
     <div>
-      <div class="dhousehold">🏠 {{ household }}</div>
+      <div class="dhousehold">{{ household }}</div>
       <div class="ddate">{{ today.strftime("%A, %B %-d") }}</div>
     </div>
     <div class="dclock" id="clock">--:--</div>
@@ -40,7 +43,7 @@
         {% for ev in day.events %}
         <div class="devent cat-{{ ev.category if ev.visible else 'other' }}">
           <div class="devtime">{% if ev.all_day %}All day{% else %}{{ ev.start_time | fmt_time }}{% endif %}</div>
-          <div class="devtitle">{% if ev.visible %}{{ ev.title }}{% else %}🔒 Busy{% endif %}</div>
+          <div class="devtitle">{% if ev.visible %}{{ ev.title }}{% else %}Busy{% endif %}</div>
           {% if ev.kids %}
           <div class="devkids">
             {% for k in ev.kids %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}

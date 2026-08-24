@@ -130,7 +130,7 @@ def _db_error_page(exc: Exception) -> HTMLResponse:
         pass
     return HTMLResponse(
         "<div style='font-family:sans-serif;max-width:640px;margin:4rem auto'>"
-        "<h1>🏠 Family Hub can't reach its database</h1>"
+        "<h1>Family Hub can't reach its database</h1>"
         f"<p style='color:#a11622'><code>{detail}</code></p>"
         f"{tried}"
         f"<p>Likely fix:</p><ul>{items}</ul>"

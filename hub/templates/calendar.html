@@ -9,7 +9,7 @@
   </div>
   <div>
     {% if pending_swaps %}
-    <a class="btn warn" href="/swaps">⇄ {{ pending_swaps }} swap{{ 's' if pending_swaps != 1 }} to review</a>
+    <a class="btn warn" href="/swaps">{{ pending_swaps }} swap{{ 's' if pending_swaps != 1 }} to review</a>
     {% endif %}
     <a class="btn primary" href="/events/new?date_={{ week_start.isoformat() }}">+ Add event</a>
   </div>
@@ -31,7 +31,7 @@ to see who has the kids each day.</p>
     {% if c.custodian %}
     <div class="custody" style="--pcolor: {{ c.custodian['color'] }}"
          title="{{ c.label }} with {{ c.custodian['name'] }}">
-      🏠 <span class="custkids">{{ c.label }}:</span> {{ c.custodian['name'] }}{% if c.has_override %} <span title="Changed by an approved swap">⇄</span>{% endif %}
+      <span class="custkids">{{ c.label }}:</span> {{ c.custodian['name'] }}{% if c.has_override %} <span title="Changed by an approved swap">⇄</span>{% endif %}
     </div>
     {% endif %}
     {% endfor %}
@@ -40,7 +40,7 @@ to see who has the kids each day.</p>
       {% if ev.visible %}
       <a class="event cat-{{ ev.category }}" href="/events/{{ ev.id }}/edit">
         <span class="evtime">{% if ev.all_day %}All day{% else %}{{ ev.start_time | fmt_time }}{% endif %}</span>
-        <span class="evtitle">{% if ev.private %}🔒 {% endif %}{{ ev.title }}</span>
+        <span class="evtitle">{{ ev.title }}{% if ev.private %} <span class="badge private">private</span>{% endif %}</span>
         {% if ev.kids %}
         <span class="evkids">
           {% for k in ev.kids %}<span class="dot" title="{{ k['name'] }}" style="background: {{ k['color'] }}"></span>{% endfor %}
@@ -50,7 +50,7 @@ to see who has the kids each day.</p>
       {% else %}
       <div class="event cat-other evbusy" title="Details are private">
         <span class="evtime">{% if ev.all_day %}All day{% else %}{{ ev.start_time | fmt_time }}{% endif %}</span>
-        <span class="evtitle">🔒 Busy</span>
+        <span class="evtitle">Busy</span>
         {% if ev.kids %}
         <span class="evkids">
           {% for k in ev.kids %}<span class="dot" title="{{ k['name'] }}" style="background: {{ k['color'] }}"></span>{% endfor %}
@@ -73,6 +73,6 @@ to see who has the kids each day.</p>
   <span class="legenditem"><span class="chip cat-activity">activity</span></span>
   <span class="legenditem"><span class="chip cat-medical">medical</span></span>
   <span class="legenditem"><span class="chip cat-other">other</span></span>
-  <span class="legenditem">🔒 = private (details visible to that kid's co-parents)</span>
+  <span class="legenditem"><span class="badge private">private</span> details visible to that kid's co-parents only</span>
 </div>
 {% endblock %}
