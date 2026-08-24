@@ -17,6 +17,7 @@ Use :func:`insert_id` instead of ``cursor.lastrowid`` so inserts work on both.
 import os
 import sqlite3
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 DEFAULT_DB_PATH = str(Path(__file__).resolve().parent.parent / "hub.db")
 
@@ -133,8 +134,29 @@ def db_path() -> str:
     return os.environ.get("HUB_DB", DEFAULT_DB_PATH)
 
 
+# Query params some platforms append (Prisma/pooler hints) that libpq/psycopg
+# would reject as unknown connection options.
+_NON_LIBPQ_PARAMS = {"pgbouncer", "connection_limit", "pool_timeout", "supa", "schema"}
+
+
+def _sanitize_pg_url(url: str) -> str:
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    kept = [(k, v) for k, v in parse_qsl(parts.query)
+            if k.lower() not in _NON_LIBPQ_PARAMS]
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(kept), parts.fragment)
+    )
+
+
 def database_url() -> str:
-    return os.environ.get("HUB_DATABASE_URL", "")
+    """Postgres URL if configured: HUB_DATABASE_URL, or POSTGRES_URL as set
+    automatically by the Vercel <-> Supabase integration."""
+    url = os.environ.get("HUB_DATABASE_URL") or os.environ.get("POSTGRES_URL") or ""
+    if url.startswith(("postgres://", "postgresql://")):
+        return _sanitize_pg_url(url)
+    return url
 
 
 class PgConnection:

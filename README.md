@@ -61,13 +61,18 @@ automatically on first request — no migrations to run.
 
 #### Vercel + Supabase (serverless)
 
-1. **Supabase**: create a project, then copy the **Transaction pooler**
-   connection string (Connect → Transaction pooler, port 6543) with your
-   database password filled in.
-2. **Vercel**: import this GitHub repo (the included `vercel.json` and
-   `api/index.py` configure the Python function), and add one environment
-   variable: `HUB_DATABASE_URL` = that connection string.
+1. **Vercel**: import this GitHub repo (the included `vercel.json` and
+   `api/index.py` configure the Python function).
+2. **Connect Supabase**: in the Vercel project, Storage → Connect Store →
+   Supabase (or install the Supabase integration from the Vercel
+   Marketplace). This creates/links the database and injects `POSTGRES_URL`
+   automatically — the app picks it up, no manual connection string needed.
 3. Deploy. Open the Vercel URL and run the setup wizard.
+
+Prefer wiring it by hand (or an existing Supabase project)? Set
+`HUB_DATABASE_URL` to the **Transaction pooler** connection string
+(Supabase → Connect → Transaction pooler, port 6543); it takes precedence
+over `POSTGRES_URL`.
 
 #### Container platforms (SQLite on a volume)
 
