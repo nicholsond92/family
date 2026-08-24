@@ -22,6 +22,11 @@ def test_database_url_strips_non_libpq_params(monkeypatch):
     assert db.database_url() == "postgres://u:p@h:6543/db?sslmode=require"
 
 
+def test_database_url_strips_quotes_and_whitespace(monkeypatch):
+    monkeypatch.setenv("HUB_DATABASE_URL", '  "postgresql://u@h/db"\n')
+    assert db.database_url() == "postgresql://u@h/db"
+
+
 def test_database_url_empty_when_unset(monkeypatch):
     monkeypatch.delenv("HUB_DATABASE_URL", raising=False)
     monkeypatch.delenv("POSTGRES_URL", raising=False)

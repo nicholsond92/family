@@ -154,6 +154,8 @@ def database_url() -> str:
     """Postgres URL if configured: HUB_DATABASE_URL, or POSTGRES_URL as set
     automatically by the Vercel <-> Supabase integration."""
     url = os.environ.get("HUB_DATABASE_URL") or os.environ.get("POSTGRES_URL") or ""
+    # Pasted values often carry whitespace or wrapping quotes.
+    url = url.strip().strip("'\"").strip()
     if url.startswith(("postgres://", "postgresql://")):
         return _sanitize_pg_url(url)
     return url
