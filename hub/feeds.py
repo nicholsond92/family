@@ -64,6 +64,14 @@ def _fmt_dt(d: date, hhmm: str) -> str:
     return f"{d.strftime('%Y%m%d')}T{hhmm.replace(':', '')}00"
 
 
+def _fmt_handoff(hhmm: str) -> str:
+    try:
+        t = datetime.strptime(hhmm, "%H:%M")
+        return t.strftime("%-I:%M%p").lower().replace(":00", "")
+    except ValueError:
+        return hhmm
+
+
 def build_ics(name: str, vevents: list[list[str]]) -> str:
     lines = [
         "BEGIN:VCALENDAR",
@@ -117,9 +125,15 @@ def event_vevent(ev, kid_names: list[str], visible: bool) -> list[str]:
 
 
 def custody_vevent(circle_id: int, block, parent_name: str, kid_label: str,
-                   handoff_time: str) -> list[str]:
+                   handoff_time: str, next_parent: str | None = None) -> list[str]:
     summary = f"{kid_label} with {parent_name}" if kid_label else f"Kids with {parent_name}"
-    desc = f"Custody: {parent_name} has {kid_label or 'the kids'}. Handoff around {handoff_time}."
+    desc = f"Custody: {parent_name} has {kid_label or 'the kids'}."
+    if next_parent:
+        switch = block["end"] + timedelta(days=1)
+        desc += (
+            f" {next_parent} takes over {switch.strftime('%A, %b %-d')} "
+            f"around {_fmt_handoff(handoff_time)}."
+        )
     if block["has_override"]:
         desc += " Includes an approved schedule swap."
     return [
@@ -224,9 +238,15 @@ def generate_feed(conn, feed) -> str:
         kid_label = " & ".join(kids_by_circle.get(circle_id, []))
         for block in custody.custody_blocks(conn, circle_id, start, end):
             pname = parents.get(block["parent_id"], "parent").split()[0]
+            next_id = custody.custodian_on(
+                conn, circle_id, block["end"] + timedelta(days=1), schedule
+            )
+            next_name = None
+            if next_id is not None and next_id != block["parent_id"]:
+                next_name = parents.get(next_id, "").split()[0] or None
             vevents.append(
                 custody_vevent(circle_id, block, pname, kid_label,
-                               schedule["handoff_time"])
+                               schedule["handoff_time"], next_name)
             )
 
     return build_ics(feed["name"], vevents)

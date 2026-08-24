@@ -325,6 +325,25 @@ def test_household_timezone_setting(env, client):
     conn.close()
 
 
+def test_custody_switch_is_stated_as_an_event(env, client):
+    do_setup(client)
+    conn = db.connect()
+    token = db.get_setting(conn, "display_token")
+    display = TestClient(env).get(f"/display?token={token}").text
+    # The banner names who takes over and when, instead of an ambiguous
+    # "handoff around 18:00" — 12-hour time, explicit day.
+    assert "switching to" in display
+    assert "18:00" not in display and "17:00" not in display
+    # Feed custody descriptions carry the same explicit transition.
+    feed_token = conn.execute(
+        "SELECT token FROM feeds WHERE kind='all' AND owner_parent_id = ?",
+        (parent_id(conn, "Dylan"),),
+    ).fetchone()["token"]
+    ics = client.get(f"/ics/{feed_token}.ics").text
+    assert "takes over" in ics
+    conn.close()
+
+
 def test_themes_and_custom_colors(env, client):
     do_setup(client)
     conn = db.connect()
