@@ -766,12 +766,29 @@ a.dtab { text-decoration: none; }
   .dschool-xs { width: 14px; height: 14px; min-width: 14px; min-height: 14px; font-size: 7px; margin-right: 4px; }
   .tallday { gap: 6px; margin-bottom: 8px; }
   .talldaychip { font-size: 12px; padding: 5px 10px; gap: 5px; }
-  .ttimeline { gap: 8px; overflow-y: visible; }
-  .tevent { gap: 8px; }
-  .ttime { width: 52px; justify-content: flex-start; padding-top: 13px; }
+  .ttimeline { gap: 12px; overflow-y: visible; }
+  /* Full-width cards with the time as a small label above — the wide left
+     time gutter doesn't earn its keep on a 390px screen. */
+  .tevent { flex-direction: column; align-items: stretch; gap: 4px; }
+  .ttime {
+    width: auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: baseline;
+    gap: 5px;
+    padding: 0 6px;
+    text-align: left;
+  }
+  .tstart {
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+  .tend { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .tend::before { content: "– "; }
   .ttitle { gap: 8px; }
-  .tstart { font-size: 14px; }
-  .tend { font-size: 11px; }
   .tcard { border-radius: 12px; padding: 9px 12px; }
   .ttitle { font-size: 15px; gap: 6px; }
   .tnext { font-size: 9px; padding: 2px 8px; margin-left: 6px; }
