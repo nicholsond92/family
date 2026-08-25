@@ -1341,6 +1341,7 @@ def create_app() -> FastAPI:
                 else:
                     switch_text = switch_date.strftime("%A, %b %-d")
                 banners.append({
+                    "circle_id": cid,
                     "label": ctx["circle_labels"].get(cid, "Kids"),
                     "custodian": ctx["parent_by_id"].get(who),
                     "next_custodian": next_custodian,

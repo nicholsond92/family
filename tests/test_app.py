@@ -400,9 +400,10 @@ def test_custody_switch_is_stated_as_an_event(env, client):
     conn = db.connect()
     token = db.get_setting(conn, "display_token")
     display = TestClient(env).get(f"/display?token={token}").text
-    # The banner names who takes over and when, instead of an ambiguous
-    # "handoff around 18:00" — 12-hour time, explicit day.
-    assert "switching to" in display
+    # The who-has-the-kids card names who takes over and when, instead of an
+    # ambiguous "handoff around 18:00" — 12-hour time, explicit day.
+    assert "takes over" in display
+    assert 'class="davatar"' in display
     assert "18:00" not in display and "17:00" not in display
     # Feed custody descriptions carry the same explicit transition.
     feed_token = conn.execute(
