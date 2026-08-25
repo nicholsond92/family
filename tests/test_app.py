@@ -290,15 +290,16 @@ def test_invite_cannot_take_over_joined_account(env, client):
     conn.close()
 
 
-def test_custody_settings_scoped_to_circle(env, client):
+def test_custody_settings_admin_and_scoping(env, client):
     do_setup(client)
     conn = db.connect()
     circle2 = conn.execute(
         "SELECT circle_id FROM circle_parents WHERE parent_id = ?",
         (parent_id(conn, "Mark"),),
     ).fetchone()["circle_id"]
-    # Dylan isn't a co-parent in circle 2 — he can't change its schedule.
-    r = client.post(f"/settings/custody/{circle2}", data={
+    # Sarah is neither a circle-2 co-parent nor the admin — still forbidden.
+    sarah = join(env, conn, "Sarah", "sarahpass")
+    r = sarah.post(f"/settings/custody/{circle2}", data={
         "pattern": "alternating_weeks",
         "first_parent": str(parent_id(conn, "Mark")),
         "anchor_date": monday(),
@@ -307,6 +308,18 @@ def test_custody_settings_scoped_to_circle(env, client):
     assert conn.execute(
         "SELECT pattern FROM custody_schedule WHERE circle_id = ?", (circle2,)
     ).fetchone()["pattern"] == "two_two_three"
+    # Dylan created the hub, so as household admin he CAN configure circle 2.
+    r = client.post(f"/settings/custody/{circle2}", data={
+        "pattern": "alternating_weeks",
+        "first_parent": str(parent_id(conn, "Mark")),
+        "anchor_date": monday(),
+    })
+    assert r.status_code == 200
+    assert conn.execute(
+        "SELECT pattern FROM custody_schedule WHERE circle_id = ?", (circle2,)
+    ).fetchone()["pattern"] == "alternating_weeks"
+    # Admin power stops at configuration: Dylan still can't decide circle-2
+    # swaps (covered in test_swaps_scoped_to_circle) or see their privates.
     conn.close()
 
 

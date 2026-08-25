@@ -232,6 +232,19 @@ def create_app() -> FastAPI:
             out.setdefault(row["circle_id"], []).append(row)
         return out
 
+    def is_admin(conn, parent_id: int) -> bool:
+        """The household admin is the adult who created the hub. Stored as a
+        setting; older databases fall back to the first-created adult (the
+        setup submitter is always the first insert)."""
+        stored = db.get_setting(conn, "admin_parent_id")
+        if stored:
+            try:
+                return int(stored) == parent_id
+            except ValueError:
+                pass
+        row = conn.execute("SELECT MIN(id) AS m FROM parents").fetchone()
+        return row is not None and row["m"] == parent_id
+
     def current_parent(request: Request, conn):
         pid = request.session.get("parent_id")
         if not pid:
@@ -473,6 +486,7 @@ def create_app() -> FastAPI:
 
             me_id = add_adult(form["adult1_name"], form.get("adult1_email"),
                               PARENT_COLORS[0], form["adult1_password"])
+            db.set_setting(conn, "admin_parent_id", str(me_id))
             coparent_id = add_adult(form["adult2_name"], form.get("adult2_email"),
                                     PARENT_COLORS[1])
             partner_id = add_adult(form.get("adult3_name", ""), form.get("adult3_email"),
@@ -1337,6 +1351,7 @@ def create_app() -> FastAPI:
             members = circle_members(conn)
             labels = circle_kid_labels(conn)
             my_ids = my_circle_ids(conn, me["id"])
+            admin = is_admin(conn, me["id"])
             circle_rows = []
             for c in circles(conn):
                 circle_rows.append({
@@ -1345,7 +1360,8 @@ def create_app() -> FastAPI:
                     "label": labels.get(c["id"], ""),
                     "members": members.get(c["id"], []),
                     "schedule": custody.load_schedule(conn, c["id"]),
-                    "editable": c["id"] in my_ids,
+                    "editable": c["id"] in my_ids or admin,
+                    "admin_edit": admin and c["id"] not in my_ids,
                 })
             base = str(request.base_url).rstrip("/")
             return render(
@@ -1408,9 +1424,10 @@ def create_app() -> FastAPI:
             if redirect:
                 return redirect
             me = current_parent(request, conn)
-            if circle_id not in my_circle_ids(conn, me["id"]):
+            if circle_id not in my_circle_ids(conn, me["id"]) and not is_admin(conn, me["id"]):
                 return HTMLResponse(
-                    "Only that circle's co-parents can change its custody schedule.",
+                    "Only that circle's co-parents (or the household admin) can "
+                    "change its custody schedule.",
                     status_code=403,
                 )
             member_list = circle_members(conn).get(circle_id, [])
