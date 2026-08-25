@@ -557,3 +557,74 @@ def test_repeating_event_creates_series(env, client):
     client.post(f"/events/{rows[0]['id']}/delete", data={"scope": "series"})
     assert conn.execute("SELECT COUNT(*) AS n FROM events").fetchone()["n"] == 0
     conn.close()
+
+
+def test_bulk_event_import(env, client):
+    do_setup(client)
+    conn = db.connect()
+    kid_id = conn.execute("SELECT id FROM kids WHERE name = 'Emma'").fetchone()["id"]
+
+    rows = "\n".join([
+        "# comment line",
+        "date, title",
+        "2026-09-07, No School — Labor Day",
+        "2026-09-10..2026-09-11, Picture Days",
+        "2026-12-03, Christmas Program, 18:30",
+        "not-a-date, Broken line",
+    ])
+    r = client.post("/settings/events/import",
+                    data={"rows": rows, "category": "school",
+                          "kid_ids": [str(kid_id)]})
+    assert r.status_code == 200
+    assert "Imported 4 event(s)" in r.text
+    assert "couldn't read 1 line(s)" in r.text
+
+    evs = {e["date"]: e for e in conn.execute(
+        "SELECT * FROM events ORDER BY date").fetchall()}
+    assert evs["2026-09-07"]["all_day"] == 1
+    assert evs["2026-09-10"]["title"] == "Picture Days"
+    assert evs["2026-09-11"]["title"] == "Picture Days"
+    assert evs["2026-12-03"]["start_time"] == "18:30"
+    assert evs["2026-12-03"]["all_day"] == 0
+    linked = conn.execute(
+        "SELECT kid_id FROM event_kids WHERE event_id = ?",
+        (evs["2026-09-07"]["id"],)).fetchall()
+    assert [row["kid_id"] for row in linked] == [kid_id]
+
+    # Re-importing the same rows is a no-op.
+    r = client.post("/settings/events/import", data={"rows": rows})
+    assert "Imported 0 event(s)" in r.text
+    assert "skipped 4" in r.text
+    conn.close()
+
+
+def test_display_quick_add(env, client):
+    do_setup(client)
+    conn = db.connect()
+    token = db.get_setting(conn, "display_token")
+    dylan = conn.execute("SELECT id FROM parents WHERE name = 'Dylan'").fetchone()["id"]
+    kid_id = conn.execute("SELECT id FROM kids WHERE name = 'Emma'").fetchone()["id"]
+    kiosk = TestClient(env, follow_redirects=False)
+
+    # No token, no session -> refused.
+    r = kiosk.post("/display/events/new", data={
+        "title": "Nope", "date": date.today().isoformat(), "parent_id": str(dylan)})
+    assert r.status_code == 403
+
+    r = kiosk.post("/display/events/new", data={
+        "token": token, "title": "Dentist for Emma",
+        "date": date.today().isoformat(), "start_time": "15:30",
+        "parent_id": str(dylan), "kid_ids": [str(kid_id)]})
+    assert r.status_code == 303
+    assert "/display" in r.headers["location"]
+
+    ev = conn.execute("SELECT * FROM events WHERE title = 'Dentist for Emma'").fetchone()
+    assert ev["start_time"] == "15:30"
+    assert ev["created_by"] == dylan
+    assert ev["private"] == 0
+
+    # The add button and modal render on the display.
+    page = TestClient(env).get(f"/display?token={token}").text
+    assert "addmodal" in page and "Add to the calendar" in page
+    assert "Dentist for Emma" in page
+    conn.close()
