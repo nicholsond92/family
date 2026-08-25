@@ -50,6 +50,18 @@ WEATHER_WORDS = {
     95: "Storms", 96: "Storms", 99: "Storms",
 }
 
+# Open-Meteo WMO weather codes -> kid-friendly symbols for the wall display.
+WEATHER_ICONS = {
+    0: "☀️", 1: "🌤️", 2: "⛅", 3: "☁️",
+    45: "🌫️", 48: "🌫️",
+    51: "🌦️", 53: "🌦️", 55: "🌦️", 56: "🌦️", 57: "🌦️",
+    61: "🌧️", 63: "🌧️", 65: "🌧️", 66: "🌧️", 67: "🌧️",
+    71: "❄️", 73: "❄️", 75: "❄️", 77: "❄️",
+    80: "🌦️", 81: "🌦️", 82: "🌦️",
+    85: "❄️", 86: "❄️",
+    95: "⛈️", 96: "⛈️", 99: "⛈️",
+}
+
 
 def _session_secret() -> str:
     try:
@@ -485,18 +497,23 @@ def create_app() -> FastAPI:
                 params={
                     "latitude": lat, "longitude": lon,
                     "current": "temperature_2m,weather_code",
-                    "daily": "temperature_2m_max,temperature_2m_min",
+                    "daily": "temperature_2m_max,temperature_2m_min,weather_code",
                     "temperature_unit": unit,
                     "timezone": "auto", "forecast_days": 1,
                 },
                 timeout=4,
             )
             data = resp.json()
+            # The symbol/word reflect the day's forecast (not the moment's
+            # conditions) so kids see what the day will be like.
+            day_codes = data.get("daily", {}).get("weather_code") or []
+            code = day_codes[0] if day_codes else data["current"]["weather_code"]
             return {
                 "temp": round(data["current"]["temperature_2m"]),
                 "hi": round(data["daily"]["temperature_2m_max"][0]),
                 "lo": round(data["daily"]["temperature_2m_min"][0]),
-                "cond": WEATHER_WORDS.get(data["current"]["weather_code"], ""),
+                "cond": WEATHER_WORDS.get(code, ""),
+                "icon": WEATHER_ICONS.get(code, ""),
             }
         except Exception:  # noqa: BLE001 — weather is decorative, never break the wall
             return None
