@@ -37,9 +37,10 @@
   <p class="muted small" style="margin:0 0 0.6rem">Shown on the wall display under each
   school day. On <a href="https://menus.healthepro.com" target="_blank">menus.healthepro.com</a>,
   navigate to your school's lunch menu and paste the page address here (it looks like
-  …/organizations/123/sites/456/menus/78901).</p>
+  …/organizations/123/sites/456/menus/78901). FastDirect school sites work too —
+  paste the school's Lunch.pl calendar address (…fastdir.com/~fastdir/cgi/…/Lunch.pl).</p>
   <form method="post" action="/settings/lunch" class="stack">
-    {% for i in (1, 2, 3) %}
+    {% for i in (1, 2, 3, 4) %}
     {% set m = lunch_menus[i - 1] if lunch_menus | length >= i else None %}
     <div class="grid2">
       <label>Menu URL {{ i }}{% if i > 1 %} <span class="muted small">(optional — another school)</span>{% endif %}
