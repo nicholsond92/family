@@ -59,6 +59,12 @@
       </div>
       {% endif %}
       {% endfor %}
+      {% for l in lunches.get(day.iso, []) %}
+      <div class="dlunch" title="School lunch">
+        <span class="dlunchtag">Lunch{% if l.label %} · {{ l.label }}{% endif %}</span>
+        <span class="dlunchtext">{{ l.text }}</span>
+      </div>
+      {% endfor %}
       <div class="ddayevents">
         {% for ev in day.events %}
         {% set tint = ev.kids[0]['color'] if ev.kids else '#a8a29e' %}

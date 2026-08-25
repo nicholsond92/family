@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import custody, db, feeds, security
+from . import custody, db, feeds, lunch, security
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -1294,6 +1294,7 @@ def create_app() -> FastAPI:
             upcoming_days = [
                 d for d in (ctx["days"] + next_ctx["days"]) if d["date"] >= today
             ][:7]
+            lunches = lunch.lunches_for(conn, [d["date"] for d in upcoming_days])
             banners = []
             for cid, schedule in ctx["schedules"].items():
                 who = custody.custodian_on(conn, cid, today, schedule)
@@ -1334,6 +1335,7 @@ def create_app() -> FastAPI:
                 kids_by_circle=circle_kid_rows(conn),
                 weather=fetch_weather(conn),
                 display_theme=db.get_setting(conn, "display_theme", "warm") or "warm",
+                lunches=lunches,
             )
         finally:
             conn.close()
@@ -1375,6 +1377,7 @@ def create_app() -> FastAPI:
                 weather_unit=db.get_setting(conn, "weather_unit", "fahrenheit"),
                 my_theme=db.get_setting(conn, f"theme:{me['id']}", "light") or "light",
                 display_theme=db.get_setting(conn, "display_theme", "warm") or "warm",
+                lunch_menus=lunch.get_menus(conn),
             )
         finally:
             conn.close()
@@ -1485,6 +1488,74 @@ def create_app() -> FastAPI:
                 )
                 conn.commit()
             return RedirectResponse("/settings", status_code=303)
+        finally:
+            conn.close()
+
+    @app.post("/settings/lunch")
+    async def settings_lunch(request: Request):
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            form = await request.form()
+            menus = []
+            for i in (1, 2):
+                url = (form.get(f"lunch_url{i}") or "").strip()
+                label = (form.get(f"lunch_label{i}") or "").strip()
+                if url and lunch.parse_menu_url(url):
+                    menus.append({"url": url, "label": label})
+            lunch.set_menus(conn, menus)
+            # Drop caches so the new source shows up immediately.
+            conn.execute("DELETE FROM settings WHERE key LIKE 'lunch_cache:%'")
+            conn.commit()
+            return RedirectResponse("/settings", status_code=303)
+        finally:
+            conn.close()
+
+    @app.get("/settings/lunch/test", response_class=HTMLResponse)
+    def settings_lunch_test(request: Request):
+        """Live-fetch the configured lunch menus and show exactly what the
+        API returned — for debugging Health-e Pro's undocumented endpoints."""
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            today = hub_today(conn)
+            sections = []
+            for menu in lunch.get_menus(conn):
+                lunches, attempts = lunch.fetch_month(
+                    menu["url"], today.year, today.month
+                )
+                rows = "".join(
+                    "<li><code>{}</code> → <strong>{}</strong>{}"
+                    "<pre style='white-space:pre-wrap;background:#f4f4f5;"
+                    "padding:8px;border-radius:6px'>{}</pre></li>".format(
+                        html.escape(str(a["endpoint"])), html.escape(str(a["status"])),
+                        f" · parsed {a['parsed_days']} days" if "parsed_days" in a else "",
+                        html.escape(str(a["excerpt"])),
+                    )
+                    for a in attempts
+                )
+                sample = "".join(
+                    f"<li><strong>{html.escape(d)}</strong>: {html.escape(t)}</li>"
+                    for d, t in sorted(lunches.items())[:5]
+                )
+                sections.append(
+                    f"<h2>{html.escape(menu.get('label') or menu['url'])}</h2>"
+                    + (f"<p>Parsed {len(lunches)} days this month. Sample:</p>"
+                       f"<ul>{sample}</ul>" if lunches else
+                       "<p><strong>No days parsed.</strong> Raw responses below — "
+                       "share this page's content to get the parser adjusted.</p>")
+                    + f"<ul>{rows}</ul>"
+                )
+            body = "".join(sections) or "<p>No lunch menus configured yet.</p>"
+            return HTMLResponse(
+                "<div style='font-family:sans-serif;max-width:760px;margin:2rem auto'>"
+                "<h1>Lunch menu test</h1>" + body +
+                "<p><a href='/settings'>Back to settings</a></p></div>"
+            )
         finally:
             conn.close()
 

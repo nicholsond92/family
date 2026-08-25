@@ -338,6 +338,31 @@ def test_household_timezone_setting(env, client):
     conn.close()
 
 
+def test_lunch_on_display(env, client, monkeypatch):
+    from hub import lunch as lunch_mod
+
+    do_setup(client)
+    conn = db.connect()
+    client.post("/settings/lunch", data={
+        "lunch_url1": "https://menus.healthepro.com/organizations/99/sites/760/menus/104901",
+        "lunch_label1": "Elementary",
+        "lunch_url2": "not a menu url",
+    })
+    menus = lunch_mod.get_menus(conn)
+    assert len(menus) == 1 and menus[0]["label"] == "Elementary"
+
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    monkeypatch.setattr(
+        lunch_mod, "fetch_month",
+        lambda url, y, m: ({tomorrow: "Cheese Pizza, Corn"}, []),
+    )
+    token = db.get_setting(conn, "display_token")
+    display = TestClient(env).get(f"/display?token={token}").text
+    assert "Cheese Pizza, Corn" in display
+    assert "Lunch" in display
+    conn.close()
+
+
 def test_pwa_install_surface(env, client):
     do_setup(client)
     m = client.get("/manifest.webmanifest")

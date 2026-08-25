@@ -33,6 +33,32 @@
 </div>
 
 <div class="card">
+  <h2>School lunch menus</h2>
+  <p class="muted small" style="margin:0 0 0.6rem">Shown on the wall display under each
+  school day. On <a href="https://menus.healthepro.com" target="_blank">menus.healthepro.com</a>,
+  navigate to your school's lunch menu and paste the page address here (it looks like
+  …/organizations/123/sites/456/menus/78901).</p>
+  <form method="post" action="/settings/lunch" class="stack">
+    {% for i in (1, 2) %}
+    {% set m = lunch_menus[i - 1] if lunch_menus | length >= i else None %}
+    <div class="grid2">
+      <label>Menu URL {{ i }}{% if i == 2 %} <span class="muted small">(optional — e.g. a second school)</span>{% endif %}
+        <input name="lunch_url{{ i }}" value="{{ m.url if m else '' }}"
+               placeholder="https://menus.healthepro.com/organizations/…/menus/…">
+      </label>
+      <label>Label <span class="muted small">(shown when both are set)</span>
+        <input name="lunch_label{{ i }}" value="{{ m.label if m else '' }}" placeholder="Elementary">
+      </label>
+    </div>
+    {% endfor %}
+    <div class="row">
+      <button class="btn" type="submit">Save lunch menus</button>
+      {% if lunch_menus %}<a class="btn" href="/settings/lunch/test">Test the connection</a>{% endif %}
+    </div>
+  </form>
+</div>
+
+<div class="card">
   <h2>Appearance</h2>
   <form method="post" action="/settings/appearance" class="row">
     <label>My theme
