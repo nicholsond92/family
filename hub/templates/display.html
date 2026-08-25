@@ -134,7 +134,7 @@
           <div class="tcard troutine">
             <div class="ttitle">
               <span class="davatar davatar-sm" style="background: {{ ev.parent['color'] }}">{{ ev.parent['name'] | first_name | first }}</span>
-              <strong>{{ ev.parent['name'] | first_name }}</strong> {{ ev.title }}
+              <span class="ttitletext"><strong>{{ ev.parent['name'] | first_name }}</strong> {{ ev.title }}</span>
               <span class="tnext">Up next</span>
             </div>
             {% if ev.kids %}
@@ -146,8 +146,10 @@
           {% else %}
           {% set tint = ev.kids[0]['color'] if ev.kids else '#a8a29e' %}
           <div class="tcard" style="background: {{ tint }}{{ ta }}">
-            <div class="ttitle">{% if ev.visible %}{{ ev.title }}{% else %}Busy{% endif %}
-              <span class="tnext">Up next</span></div>
+            <div class="ttitle">
+              <span class="ttitletext">{% if ev.visible %}{{ ev.title }}{% else %}Busy{% endif %}</span>
+              <span class="tnext">Up next</span>
+            </div>
             {% if ev.visible and ev.location %}<div class="tloc">{{ ev.location }}</div>{% endif %}
             {% if ev.kids %}
             <div class="tkids">
