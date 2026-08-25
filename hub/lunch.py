@@ -278,12 +278,8 @@ def parse_fastdirect(page: str):
         items = []
         for item in [rest] + lines[1:]:
             item = re.sub(r"\s+", " ", item).strip()
-            if not any(c.isalpha() for c in item) or len(item) >= 80:
-                continue
-            # "No School" placeholder days aren't lunches.
-            if item.lower().startswith("no school"):
-                continue
-            items.append(item)
+            if any(c.isalpha() for c in item) and len(item) < 80:
+                items.append(item)
         if items and day not in days:
             days[day] = items
     if len(days) < 3:
@@ -428,6 +424,14 @@ def ignored_terms(conn) -> list[str]:
     return [t.strip().lower() for t in raw.split(",") if t.strip()]
 
 
+def _is_no_school(item: str) -> bool:
+    """Calendar placeholders like "No School" / "No School - Labor Day" are
+    kept when parsing (so the test page reports what a month really holds)
+    but never shown as a lunch. Always filtered, independent of the
+    user-editable ignore list."""
+    return item.strip().lower().startswith("no school")
+
+
 def prettify_item(item: str) -> str:
     """Title-case shouting menu text; leave mixed-case text alone. Short
     all-caps tokens (BBQ, PBJ) are preserved."""
@@ -540,7 +544,8 @@ def lunches_for(conn, dates: list[date]) -> dict[str, list[dict]]:
                 continue
             items = [
                 prettify_item(item) for item in _day_items(by_date[iso])
-                if not any(term in item.lower() for term in terms)
+                if not _is_no_school(item)
+                and not any(term in item.lower() for term in terms)
             ]
             if items:
                 out.setdefault(iso, []).append(

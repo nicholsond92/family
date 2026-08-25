@@ -218,9 +218,10 @@ def test_parse_fastdirect_calendar():
     assert year_month == (2026, 9)
     assert days[1] == ["CHEESE PIZZA", "Green Beans", "Milk"]
     assert days[2] == ["Chicken Nuggets", "Dinner Roll"]
+    assert days[8] == ["No School"]
     assert days[10] == ["Hot Dog", "Chips"]
-    # Weekday headers, empty cells, and "No School" days aren't lunches.
-    assert set(days) == {1, 2, 3, 10}
+    # Weekday headers and empty cells aren't menu days.
+    assert set(days) == {1, 2, 3, 8, 10}
     assert any("Month=10" in link for link in links)
 
 
@@ -289,3 +290,26 @@ def test_valid_menu_url():
     assert lunch.valid_menu_url("https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl")
     assert not lunch.valid_menu_url("https://example.com/lunch")
     assert not lunch.valid_menu_url("")
+
+
+def test_no_school_days_never_shown_as_lunch(tmp_path):
+    from hub import db
+    conn = db.connect(str(tmp_path / "t.db"))
+    lunch.set_menus(conn, [{"url": "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl",
+                            "label": "St. Paul"}])
+    import json as _json
+    conn_key = f"lunch_cache:0:2026-08"
+    db.set_setting(conn, conn_key, _json.dumps({
+        "at": 9999999999, "days": {
+            "2026-08-25": ["No School"],
+            "2026-08-26": ["NO SCHOOL - Teacher Inservice"],
+            "2026-08-27": ["Cheese Pizza", "Green Beans"],
+        },
+    }))
+    out = lunch.lunches_for(conn, [date(2026, 8, 25), date(2026, 8, 26),
+                                   date(2026, 8, 27)])
+    # Placeholder-only days produce no lunch line at all.
+    assert "2026-08-25" not in out
+    assert "2026-08-26" not in out
+    assert out["2026-08-27"][0]["text"] == "Cheese Pizza, Green Beans"
+    conn.close()
