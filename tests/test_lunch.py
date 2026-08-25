@@ -218,10 +218,9 @@ def test_parse_fastdirect_calendar():
     assert year_month == (2026, 9)
     assert days[1] == ["CHEESE PIZZA", "Green Beans", "Milk"]
     assert days[2] == ["Chicken Nuggets", "Dinner Roll"]
-    assert days[8] == ["No School"]
     assert days[10] == ["Hot Dog", "Chips"]
-    # Weekday headers and empty cells aren't menu days.
-    assert set(days) == {1, 2, 3, 8, 10}
+    # Weekday headers, empty cells, and "No School" days aren't lunches.
+    assert set(days) == {1, 2, 3, 10}
     assert any("Month=10" in link for link in links)
 
 
@@ -231,34 +230,57 @@ def test_parse_fastdirect_rejects_non_calendar():
     assert days == {}
 
 
-def test_fetch_fastdirect_follows_month_links(monkeypatch):
-    pages = {
-        "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl": FASTDIR_SEPT,
-        "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl?Month=10&Year=2026":
-            FASTDIR_OCT,
-    }
+def test_fetch_fastdirect_other_months_via_reqyr_reqmo(monkeypatch):
+    base = "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl"
+    calls = []
 
-    def fake_get(url, attempts):
-        body = pages.get(url)
+    def fake_get(url, attempts, post_data=None):
+        calls.append((url, post_data))
+        body = None
+        if url == base and post_data is None:
+            body = FASTDIR_SEPT
+        elif url == f"{base}?ReqYR=2026&ReqMO=10" and post_data is None:
+            body = FASTDIR_OCT
         attempts.append({"endpoint": url, "status": 200 if body else 404,
-                         "excerpt": (body or "")[:100]})
+                         "excerpt": ""})
         return body
 
     monkeypatch.setattr(lunch, "_fastdir_get", fake_get)
 
-    out, _ = lunch.fetch_month(
-        "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl", 2026, 9)
+    out, _ = lunch.fetch_month(base, 2026, 9)
     assert out["2026-09-01"] == ["CHEESE PIZZA", "Green Beans", "Milk"]
 
-    # October isn't the page shown — the fetcher walks the nav links.
-    out, _ = lunch.fetch_month(
-        "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl", 2026, 10)
+    # October isn't the page shown — the fetcher asks the CGI for it the way
+    # the page's own prev/next forms do.
+    out, _ = lunch.fetch_month(base, 2026, 10)
     assert out["2026-10-01"] == ["PANCAKES & SAUSAGE", "Green Beans", "Milk"]
 
-    # A month no link leads to comes back empty, not wrong.
-    out, _ = lunch.fetch_month(
-        "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl", 2027, 2)
+    # A month the site won't serve comes back empty, not wrong; the POST and
+    # href fallbacks were tried before giving up.
+    calls.clear()
+    out, _ = lunch.fetch_month(base, 2027, 2)
     assert out == {}
+    assert any(post is not None for _, post in calls)
+    assert any("Month=10" in url for url, _ in calls)
+
+
+def test_fetch_fastdirect_post_fallback(monkeypatch):
+    base = "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl"
+
+    def fake_get(url, attempts, post_data=None):
+        body = None
+        if url == base and post_data is None:
+            body = FASTDIR_SEPT
+        elif (url == base and post_data
+              and post_data.get("ReqMO") == "10"):
+            body = FASTDIR_OCT
+        attempts.append({"endpoint": url, "status": 200 if body else 404,
+                         "excerpt": ""})
+        return body
+
+    monkeypatch.setattr(lunch, "_fastdir_get", fake_get)
+    out, _ = lunch.fetch_month(base, 2026, 10)
+    assert out["2026-10-01"] == ["PANCAKES & SAUSAGE", "Green Beans", "Milk"]
 
 
 def test_valid_menu_url():
