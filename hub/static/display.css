@@ -123,6 +123,19 @@ html, body { height: 100%; }
 }
 .dwhomain { min-width: 0; }
 .dwhoname { font-size: 2vw; font-weight: 800; line-height: 1.1; }
+.dwhostatus {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 0.6vw;
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.85vw;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.18vw 0.75vw;
+}
+.dlegendsep { width: 1px; background: var(--line); margin: 0 0.3vw; }
 .dwhokids { display: flex; gap: 0.4vw; flex-wrap: wrap; margin-top: 0.3vw; }
 .dwhokid {
   display: inline-flex;

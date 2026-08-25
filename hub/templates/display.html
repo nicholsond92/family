@@ -55,11 +55,17 @@
 
     <div class="dwho">
       {% for b in banners %}
-      <div class="dwhocard" style="background: {{ b.custodian['color'] }}{{ '24' if display_theme == 'dark' else '14' }}">
+      {% set is_home = b.custodian['id'] in home_ids %}
+      {% set ccol = (home_color if is_home else away_color) if custody_mode == 'home_away' else b.custodian['color'] %}
+      <div class="dwhocard" style="background: {{ ccol }}{{ '24' if display_theme == 'dark' else '14' }}">
         <div class="dwhotop">
-          <span class="davatar" style="background: {{ b.custodian['color'] }}">{{ b.custodian['name'] | first_name | first }}</span>
+          <span class="davatar" style="background: {{ ccol }}">{{ b.custodian['name'] | first_name | first }}</span>
           <div class="dwhomain">
-            <div class="dwhoname">{{ b.custodian['name'] | first_name }}</div>
+            <div class="dwhoname">{{ b.custodian['name'] | first_name }}
+              {% if custody_mode == 'home_away' %}
+              <span class="dwhostatus" style="background: {{ ccol }}">{{ 'Home' if is_home else 'Away' }}</span>
+              {% endif %}
+            </div>
             <div class="dwhokids">
               {% for k in kids_by_circle.get(b.circle_id, []) %}
               <span class="dwhokid" style="background: {{ k['color'] }}{{ ta }}"><span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}</span>
@@ -68,9 +74,10 @@
           </div>
         </div>
         {% if b.next_custodian %}
+        {% set ncol = (home_color if b.next_custodian['id'] in home_ids else away_color) if custody_mode == 'home_away' else b.next_custodian['color'] %}
         <div class="dnext">
           <span class="dnextarrow">→</span>
-          <span class="davatar davatar-sm" style="background: {{ b.next_custodian['color'] }}">{{ b.next_custodian['name'] | first_name | first }}</span>
+          <span class="davatar davatar-sm" style="background: {{ ncol }}">{{ b.next_custodian['name'] | first_name | first }}</span>
           <strong>{{ b.next_custodian['name'] | first_name }}</strong>&nbsp;takes over
           {{ b.switch_text }} at {{ b.handoff | fmt_time }}
         </div>
@@ -154,7 +161,8 @@
           </div>
           {% for c in day.custody %}
           {% if c.custodian %}
-          <div class="ddaycustody" style="background: {{ c.custodian['color'] }}">
+          {% set dcol = (home_color if c.custodian['id'] in home_ids else away_color) if custody_mode == 'home_away' else c.custodian['color'] %}
+          <div class="ddaycustody" style="background: {{ dcol }}">
             <span class="dkiddots">
               {% for k in kids_by_circle.get(c.circle_id, []) %}<span class="ddot dring" style="background: {{ k['color'] }}"></span>{% endfor %}
             </span>
@@ -190,6 +198,15 @@
     </section>
 
     <footer class="dfooter">
+      {% if custody_mode == 'home_away' %}
+      <span class="dlegend" style="background: {{ home_color }}{{ ta }}">
+        <span class="ddot" style="background: {{ home_color }}"></span>Kids home
+      </span>
+      <span class="dlegend" style="background: {{ away_color }}{{ ta }}">
+        <span class="ddot" style="background: {{ away_color }}"></span>Away
+      </span>
+      <span class="dlegendsep"></span>
+      {% endif %}
       {% for k in kids %}
       <span class="dlegend" style="background: {{ k['color'] }}{{ ta }}">
         <span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}
