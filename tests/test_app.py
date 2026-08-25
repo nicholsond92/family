@@ -394,9 +394,19 @@ def test_display_has_tabbed_views(env, client):
     display = TestClient(env).get(f"/display?token={token}").text
     assert 'data-view="today"' in display
     assert 'data-view="week"' in display
+    assert 'data-view="custody"' in display
     assert 'id="view-today"' in display
     assert 'id="view-week"' in display
+    assert 'id="view-custody"' in display
     assert "Tomorrow" in display
+    # Custody presentation lives only in its own tab: the who-cards appear
+    # after the custody section starts, not inside the Today view.
+    assert display.index('class="dwhocard"') > display.index('id="view-custody"')
+    today_section = display[
+        display.index('id="view-today"'):display.index('id="view-week"')
+    ]
+    assert "dwhocard" not in today_section
+    assert "takes over" not in today_section
     conn.close()
 
 

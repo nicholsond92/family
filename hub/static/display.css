@@ -136,6 +136,40 @@ html, body { height: 100%; }
   padding: 0.18vw 0.75vw;
 }
 .dlegendsep { width: 1px; background: var(--line); margin: 0 0.3vw; }
+
+/* ---- custody tab: 7-day color strip ---- */
+.cstrip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.6vw;
+  margin-top: 1vw;
+}
+.cstripday {
+  background: var(--card);
+  border-radius: 1vw;
+  box-shadow: var(--shadow);
+  padding: 0.6vw;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4vw;
+  text-align: center;
+}
+.cstriptoday { outline: 0.22vw solid var(--today); }
+.cstripname {
+  font-size: 1vw;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.cstriptoday .cstripname { color: var(--today); }
+.cstripblock {
+  border-radius: 0.6vw;
+  color: #fff;
+  font-size: 1.5vw;
+  font-weight: 800;
+  padding: 0.75vw 0;
+}
 .dwhokids { display: flex; gap: 0.4vw; flex-wrap: wrap; margin-top: 0.3vw; }
 .dwhokid {
   display: inline-flex;

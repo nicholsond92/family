@@ -29,6 +29,12 @@
       </svg>
       <span>Week</span>
     </button>
+    <button class="dtab" data-view="custody" title="Custody">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 11l9-8 9 8"/><path d="M5 9.5V21h14V9.5"/><path d="M9.5 21v-6h5v6"/>
+      </svg>
+      <span>Custody</span>
+    </button>
     <!-- Future modules (lists, chores, meals, photos…) plug in as more
          .dtab buttons + matching .dview sections. -->
   </nav>
@@ -52,39 +58,6 @@
         <div class="dclock" id="clock">--:--</div>
       </div>
     </header>
-
-    <div class="dwho">
-      {% for b in banners %}
-      {% set is_home = b.custodian['id'] in home_ids %}
-      {% set ccol = (home_color if is_home else away_color) if custody_mode == 'home_away' else b.custodian['color'] %}
-      <div class="dwhocard" style="background: {{ ccol }}{{ '24' if display_theme == 'dark' else '14' }}">
-        <div class="dwhotop">
-          <span class="davatar" style="background: {{ ccol }}">{{ b.custodian['name'] | first_name | first }}</span>
-          <div class="dwhomain">
-            <div class="dwhoname">{{ b.custodian['name'] | first_name }}
-              {% if custody_mode == 'home_away' %}
-              <span class="dwhostatus" style="background: {{ ccol }}">{{ 'Home' if is_home else 'Away' }}</span>
-              {% endif %}
-            </div>
-            <div class="dwhokids">
-              {% for k in kids_by_circle.get(b.circle_id, []) %}
-              <span class="dwhokid" style="background: {{ k['color'] }}{{ ta }}"><span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}</span>
-              {% endfor %}
-            </div>
-          </div>
-        </div>
-        {% if b.next_custodian %}
-        {% set ncol = (home_color if b.next_custodian['id'] in home_ids else away_color) if custody_mode == 'home_away' else b.next_custodian['color'] %}
-        <div class="dnext">
-          <span class="dnextarrow">→</span>
-          <span class="davatar davatar-sm" style="background: {{ ncol }}">{{ b.next_custodian['name'] | first_name | first }}</span>
-          <strong>{{ b.next_custodian['name'] | first_name }}</strong>&nbsp;takes over
-          {{ b.switch_text }} at {{ b.handoff | fmt_time }}
-        </div>
-        {% endif %}
-      </div>
-      {% endfor %}
-    </div>
 
     <!-- ============================== TODAY ============================== -->
     <section class="dview" id="view-today">
@@ -138,9 +111,6 @@
       {% if tomorrow_day %}
       <div class="ttomorrow">
         <span class="ttmlabel">Tomorrow</span>
-        {% for c in tomorrow_day.custody %}{% if c.custodian %}
-        <span class="ttmitem"><span class="ddot" style="background: {{ c.custodian['color'] }}"></span>{{ c.label }} with {{ c.custodian['name'] | first_name }}</span>
-        {% endif %}{% endfor %}
         <span class="ttmitem">{{ tomorrow_day.events | length }} event{{ 's' if tomorrow_day.events | length != 1 }}</span>
         {% for l in lunches.get(tomorrow_day.iso, [])[:1] %}
         <span class="ttmitem">Lunch: {{ l.text.split(', ')[0] }}{% if ', ' in l.text %}…{% endif %}</span>
@@ -192,6 +162,56 @@
             <div class="dnothing">No plans</div>
             {% endfor %}
           </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <!-- ============================= CUSTODY ============================= -->
+    <section class="dview" id="view-custody">
+      <div class="dwho">
+        {% for b in banners %}
+        {% set is_home = b.custodian['id'] in home_ids %}
+        {% set ccol = (home_color if is_home else away_color) if custody_mode == 'home_away' else b.custodian['color'] %}
+        <div class="dwhocard" style="background: {{ ccol }}{{ '24' if display_theme == 'dark' else '14' }}">
+          <div class="dwhotop">
+            <span class="davatar" style="background: {{ ccol }}">{{ b.custodian['name'] | first_name | first }}</span>
+            <div class="dwhomain">
+              <div class="dwhoname">{{ b.custodian['name'] | first_name }}
+                {% if custody_mode == 'home_away' %}
+                <span class="dwhostatus" style="background: {{ ccol }}">{{ 'Home' if is_home else 'Away' }}</span>
+                {% endif %}
+              </div>
+              <div class="dwhokids">
+                {% for k in kids_by_circle.get(b.circle_id, []) %}
+                <span class="dwhokid" style="background: {{ k['color'] }}{{ ta }}"><span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}</span>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+          {% if b.next_custodian %}
+          {% set ncol = (home_color if b.next_custodian['id'] in home_ids else away_color) if custody_mode == 'home_away' else b.next_custodian['color'] %}
+          <div class="dnext">
+            <span class="dnextarrow">→</span>
+            <span class="davatar davatar-sm" style="background: {{ ncol }}">{{ b.next_custodian['name'] | first_name | first }}</span>
+            <strong>{{ b.next_custodian['name'] | first_name }}</strong>&nbsp;takes over
+            {{ b.switch_text }} at {{ b.handoff | fmt_time }}
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="cstrip">
+        {% for day in days %}
+        <div class="cstripday {% if day.is_today %}cstriptoday{% endif %}">
+          <span class="cstripname">{{ "Today" if day.is_today else day.date.strftime("%a") }}</span>
+          {% for c in day.custody %}
+          {% if c.custodian %}
+          {% set dcol = (home_color if c.custodian['id'] in home_ids else away_color) if custody_mode == 'home_away' else c.custodian['color'] %}
+          <span class="cstripblock" style="background: {{ dcol }}" title="{{ c.label }} with {{ c.custodian['name'] | first_name }}">{{ c.custodian['name'] | first_name | first }}</span>
+          {% endif %}
+          {% endfor %}
         </div>
         {% endfor %}
       </div>
