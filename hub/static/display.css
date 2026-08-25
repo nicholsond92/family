@@ -86,23 +86,63 @@ html, body { height: 100%; }
 .dwmeta { display: flex; flex-direction: column; font-size: 1vw; font-weight: 700; color: var(--muted); line-height: 1.5; }
 .dclock { font-size: 3.6vw; font-weight: 800; font-variant-numeric: tabular-nums; }
 
-.dbanners { display: flex; flex-direction: column; gap: 0.5vw; margin-bottom: 1vw; }
-.dcustody {
-  border-radius: 1vw;
-  padding: 0.65vw 1.1vw;
-  font-size: 1.45vw;
-  font-weight: 600;
+/* ---- who-has-the-kids cards ---- */
+.dwho {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(24vw, 1fr));
+  gap: 0.8vw;
+  margin-bottom: 1vw;
+}
+.dwhocard {
+  border-radius: 1.1vw;
+  padding: 0.8vw 1.1vw;
+  box-shadow: var(--shadow);
+}
+.dwhotop { display: flex; align-items: center; gap: 0.9vw; }
+.davatar {
+  width: 3.4vw;
+  height: 3.4vw;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 1.7vw;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+.davatar-sm {
+  width: 1.5vw;
+  height: 1.5vw;
+  min-width: 20px;
+  min-height: 20px;
+  font-size: 0.85vw;
+}
+.dwhomain { min-width: 0; }
+.dwhoname { font-size: 2vw; font-weight: 800; line-height: 1.1; }
+.dwhokids { display: flex; gap: 0.4vw; flex-wrap: wrap; margin-top: 0.3vw; }
+.dwhokid {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35vw;
+  border-radius: 999px;
+  padding: 0.12vw 0.65vw;
+  font-size: 0.95vw;
+  font-weight: 700;
+}
+.dnext {
   display: flex;
   align-items: center;
+  gap: 0.45vw;
+  margin-top: 0.6vw;
+  font-size: 1vw;
+  font-weight: 600;
+  color: var(--muted);
 }
-.dcdot {
-  display: inline-block;
-  width: 1vw;
-  height: 1vw;
-  border-radius: 50%;
-  margin-right: 0.7vw;
-  flex-shrink: 0;
-}
+.dnextarrow { font-size: 1.25vw; font-weight: 800; }
 
 .dweek {
   flex: 1;
@@ -134,7 +174,8 @@ html, body { height: 100%; }
 .ddaycustody {
   border-radius: 0.7vw;
   font-size: 0.95vw;
-  font-weight: 700;
+  font-weight: 800;
+  color: #fff;
   padding: 0.32vw 0.6vw;
   margin-bottom: 0.4vw;
   display: flex;
@@ -143,6 +184,7 @@ html, body { height: 100%; }
   white-space: nowrap;
   overflow: hidden;
 }
+.dring { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.75); }
 .dkiddots { display: inline-flex; gap: 0.2vw; flex-shrink: 0; }
 .dlunch {
   border: 1px dashed var(--line);
