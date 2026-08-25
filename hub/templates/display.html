@@ -14,8 +14,6 @@
 </head>
 <body class="displaybody{% if display_theme == 'dark' %} theme-dark{% endif %}">
 {% set ta = '38' if display_theme == 'dark' else '1c' %}
-{% set today_day = days[0] if days else None %}
-{% set tomorrow_day = days[1] if days | length > 1 else None %}
 
 <div class="dshell">
   <nav class="drail">
@@ -88,13 +86,21 @@
         <button class="dsegbtn" data-cal="month">Month</button>
       </div>
 
-      <div class="dcalsub" id="cal-today">
+      <div class="dcalsub" id="cal-today" data-actual-today="{{ '1' if day_is_today else '' }}">
+      <div class="dnav">
+        <a class="dnavbtn" href="/display?view=calendar&cal=today&day={{ day_prev }}{{ tok }}">‹</a>
+        <span class="dnavlabel">{{ day_label }}</span>
+        <a class="dnavbtn" href="/display?view=calendar&cal=today&day={{ day_next }}{{ tok }}">›</a>
+        {% if not day_is_today %}
+        <a class="dnavbtn dnavhome" href="/display?view=calendar&cal=today{{ tok }}">Back to today</a>
+        {% endif %}
+      </div>
       {% if today_day %}
-      {% if banners %}
+      {% if strip_banners %}
       <!-- Who's where today — the first morning question, answered without
            leaving the Today view. -->
       <div class="twho">
-        {% for b in banners %}
+        {% for b in strip_banners %}
         {% if b.custodian %}
         <span class="twhoitem">
           <span class="davatar davatar-sm" style="background: {{ b.custodian['color'] }}">{{ b.custodian['name'] | first_name | first }}</span>
@@ -122,6 +128,24 @@
         </span>
         {% endfor %}
       </div>
+      {% endif %}
+      {% if day_is_today and lunches.get(tomorrow_day.iso) %}
+      <!-- Evening flip: tomorrow's menus, for packing lunches the night
+           before. Tapping opens tomorrow's day view. -->
+      <a class="tlunchbar" id="lunchbar-tmrw" hidden
+         href="/display?view=calendar&cal=today&day={{ tomorrow_day.iso }}{{ tok }}">
+        <span class="dlunchtag">Lunch tomorrow</span>
+        {% for l in lunches.get(tomorrow_day.iso, []) %}
+        {% set b = l.label | school_badge %}
+        <span class="tlunchbaritem">
+          {% if l.logos %}<img class="dschool dschool-xs dschool-img" src="{{ l.logos[0] }}" alt="">{% else %}<span class="dschool dschool-xs" style="background: {{ b.color }}">{{ b.initials }}</span>{% endif %}
+          <span class="tlunchbartext">{{ l.text }}</span>
+        </span>
+        {% endfor %}
+      </a>
+      {% endif %}
+      {% set day_lunches = lunches.get(today_day.iso, []) %}
+      {% if day_lunches %}
       <div class="tlunchrow" id="lunchrow" hidden>
         {% for l in day_lunches %}
         {% set b = l.label | school_badge %}
@@ -196,7 +220,7 @@
 
       {% if tomorrow_day %}
       <div class="ttomorrow">
-        <span class="ttmlabel">Tomorrow</span>
+        <span class="ttmlabel">{{ next_label }}</span>
         <span class="ttmitem">{{ tomorrow_day.events | length }} event{{ 's' if tomorrow_day.events | length != 1 }}</span>
         {% for l in lunches.get(tomorrow_day.iso, [])[:1] %}
         <span class="ttmitem">Lunch: {{ l.text.split(', ')[0] }}{% if ', ' in l.text %}…{% endif %}</span>
@@ -573,23 +597,33 @@
       if (isNext) nextTagged = true;
     });
   }
-  markProgress();
-  setInterval(markProgress, 60000);
+  // Dim-past / up-next only applies to the real today, not a browsed day.
+  if (document.getElementById("cal-today").dataset.actualToday) {
+    markProgress();
+    setInterval(markProgress, 60000);
+  }
 
-  // --- Lunch bar: slim in the morning, tap for details, gone after 1pm. ---
+  // --- Lunch bars: today's is slim in the morning and gone after 1pm;
+  // from 5pm, tomorrow's menus appear instead (for packing the night
+  // before) and tap through to tomorrow's day view. When browsing another
+  // day, its lunch bar just stays put. ---
+  const actualToday = !!document.getElementById("cal-today").dataset.actualToday;
   const lunchBar = document.getElementById("lunchbar");
   const lunchRow = document.getElementById("lunchrow");
+  const lunchTmrw = document.getElementById("lunchbar-tmrw");
+  const hourNow = new Date().getHours();
   if (lunchBar) {
-    if (new Date().getHours() >= 13) lunchBar.hidden = true;
+    if (actualToday && hourNow >= 13) lunchBar.hidden = true;
     lunchBar.addEventListener("click", () => {
       lunchBar.hidden = true;
       if (lunchRow) lunchRow.hidden = false;
     });
     if (lunchRow) lunchRow.addEventListener("click", () => {
       lunchRow.hidden = true;
-      if (new Date().getHours() < 13) lunchBar.hidden = false;
+      if (!actualToday || hourNow < 13) lunchBar.hidden = false;
     });
   }
+  if (lunchTmrw && hourNow >= 17) lunchTmrw.hidden = false;
 
   // Refresh the schedule every 5 minutes (URL keeps token and view) —
   // never yank the page out from under someone typing in the modal, and
@@ -599,6 +633,7 @@
     const url = new URL(location.href);
     url.searchParams.delete("week");
     url.searchParams.delete("month");
+    url.searchParams.delete("day");
     location.href = url.toString();
   }, 5 * 60 * 1000);
 </script>

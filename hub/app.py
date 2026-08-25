@@ -1507,7 +1507,8 @@ def create_app() -> FastAPI:
 
     @app.get("/display", response_class=HTMLResponse)
     def display(request: Request, token: str | None = None,
-                week: str | None = None, month: str | None = None):
+                week: str | None = None, month: str | None = None,
+                day: str | None = None):
         conn = get_conn()
         try:
             expected = db.get_setting(conn, "display_token")
@@ -1565,54 +1566,80 @@ def create_app() -> FastAPI:
                 month_weeks.append(week_context(conn, wstart, None, today)["days"])
                 wstart += timedelta(days=7)
 
+            # Day browsing on the Today sub-view: ?day=YYYY-MM-DD.
+            try:
+                target = date.fromisoformat(day) if day else today
+            except ValueError:
+                target = today
+            if abs((target - today).days) > 60:
+                target = today
+
+            _week_cache: dict = {week_start: ctx,
+                                 week_start + timedelta(days=7): next_ctx}
+
+            def day_context(d: date) -> dict:
+                monday = custody.monday_of(d)
+                if monday not in _week_cache:
+                    _week_cache[monday] = week_context(conn, monday, None, today)
+                return next(x for x in _week_cache[monday]["days"]
+                            if x["date"] == d)
+
+            today_day_ctx = day_context(target)
+            next_day_ctx = day_context(target + timedelta(days=1))
+
             lunch_dates = {d["date"] for d in upcoming_days}
             lunch_dates.update(d["date"] for d in week_days)
+            lunch_dates.update({target, target + timedelta(days=1)})
             lunches = lunch.lunches_for(conn, sorted(lunch_dates))
-            today_allday, today_timeline = [], []
-            if upcoming_days:
-                today_events = upcoming_days[0]["events"]
-                today_allday = [e for e in today_events if e["all_day"]]
-                timed = [{**e, "is_routine": False}
-                         for e in today_events if not e["all_day"]]
-                today_timeline = sorted(
-                    timed + routines_for_day(conn, today),
-                    key=lambda x: x.get("start_time") or "99:99",
-                )
-            banners = []
-            for cid, schedule in ctx["schedules"].items():
-                who = custody.custodian_on(conn, cid, today, schedule)
-                if who is None:
-                    continue
-                run_end = today
-                probe = today
-                for _ in range(30):
-                    nxt = probe + timedelta(days=1)
-                    if custody.custodian_on(conn, cid, nxt, schedule) != who:
-                        break
-                    probe = nxt
-                run_end = probe
-                # The exchange is an event: the next parent takes over on the
-                # first day of their block, at the handoff time.
-                switch_date = run_end + timedelta(days=1)
-                next_who = custody.custodian_on(conn, cid, switch_date, schedule)
-                next_custodian = (
-                    ctx["parent_by_id"].get(next_who)
-                    if next_who is not None and next_who != who else None
-                )
-                if switch_date == today + timedelta(days=1):
-                    switch_text = "tomorrow"
-                elif (switch_date - today).days <= 6:
-                    switch_text = switch_date.strftime("%A")
-                else:
-                    switch_text = switch_date.strftime("%A, %b %-d")
-                banners.append({
-                    "circle_id": cid,
-                    "label": ctx["circle_labels"].get(cid, "Kids"),
-                    "custodian": ctx["parent_by_id"].get(who),
-                    "next_custodian": next_custodian,
-                    "switch_text": switch_text,
-                    "handoff": schedule["handoff_time"],
-                })
+            today_events = today_day_ctx["events"]
+            today_allday = [e for e in today_events if e["all_day"]]
+            timed = [{**e, "is_routine": False}
+                     for e in today_events if not e["all_day"]]
+            today_timeline = sorted(
+                timed + routines_for_day(conn, target),
+                key=lambda x: x.get("start_time") or "99:99",
+            )
+            def custody_banners(anchor: date) -> list[dict]:
+                out = []
+                for cid, schedule in ctx["schedules"].items():
+                    who = custody.custodian_on(conn, cid, anchor, schedule)
+                    if who is None:
+                        continue
+                    probe = anchor
+                    for _ in range(30):
+                        nxt = probe + timedelta(days=1)
+                        if custody.custodian_on(conn, cid, nxt, schedule) != who:
+                            break
+                        probe = nxt
+                    run_end = probe
+                    # The exchange is an event: the next parent takes over on
+                    # the first day of their block, at the handoff time.
+                    switch_date = run_end + timedelta(days=1)
+                    next_who = custody.custodian_on(conn, cid, switch_date,
+                                                    schedule)
+                    next_custodian = (
+                        ctx["parent_by_id"].get(next_who)
+                        if next_who is not None and next_who != who else None
+                    )
+                    if switch_date == anchor + timedelta(days=1):
+                        switch_text = "tomorrow"
+                    elif (switch_date - anchor).days <= 6:
+                        switch_text = switch_date.strftime("%A")
+                    else:
+                        switch_text = switch_date.strftime("%A, %b %-d")
+                    out.append({
+                        "circle_id": cid,
+                        "label": ctx["circle_labels"].get(cid, "Kids"),
+                        "custodian": ctx["parent_by_id"].get(who),
+                        "next_custodian": next_custodian,
+                        "switch_text": switch_text,
+                        "handoff": schedule["handoff_time"],
+                    })
+                return out
+
+            banners = custody_banners(today)
+            strip_banners = (banners if target == today
+                             else custody_banners(target))
             return render(
                 request, "display.html", conn,
                 days=upcoming_days, today=today, banners=banners, kids=kids(conn),
@@ -1636,6 +1663,17 @@ def create_app() -> FastAPI:
                 home_ids=home_parent_ids(conn),
                 today_allday=today_allday,
                 today_timeline=today_timeline,
+                today_day=today_day_ctx,
+                tomorrow_day=next_day_ctx,
+                strip_banners=strip_banners,
+                day_is_today=(target == today),
+                day_label=("Today" if target == today else
+                           "Tomorrow" if target == today + timedelta(days=1)
+                           else target.strftime("%A, %b %-d")),
+                day_prev=(target - timedelta(days=1)).isoformat(),
+                day_next=(target + timedelta(days=1)).isoformat(),
+                next_label=("Tomorrow" if target == today
+                            else (target + timedelta(days=1)).strftime("%A")),
             )
         finally:
             conn.close()

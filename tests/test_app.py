@@ -776,3 +776,34 @@ def test_today_whos_where_strip(env, client):
     assert "Dylan" in strip  # custodian of circle 1 this week (anchor monday)
     assert 'class="twhoitem"' in strip
     conn.close()
+
+
+def test_today_day_browsing(env, client):
+    do_setup(client)
+    conn = db.connect()
+    token = db.get_setting(conn, "display_token")
+    in3 = date.today() + timedelta(days=3)
+    client.post("/events/new", data={
+        "title": "Field trip forms due", "category": "school",
+        "date": in3.isoformat(), "start_time": "08:00"})
+    kiosk = TestClient(env)
+
+    def today_section(page):
+        return page[page.index('id="cal-today"'):page.index('id="cal-week"')]
+
+    # Default Today view: no future event, nav present, no back link.
+    page = kiosk.get(f"/display?token={token}").text
+    assert "Field trip forms due" not in today_section(page)
+    assert 'data-actual-today="1"' in page
+    assert "Back to today" not in page
+
+    # Browsing to that day shows its timeline, label, and the way back.
+    page = kiosk.get(f"/display?token={token}&day={in3.isoformat()}").text
+    assert "Field trip forms due" in today_section(page)
+    assert in3.strftime("%A, %b") in page
+    assert "Back to today" in page
+    assert 'data-actual-today=""' in page
+
+    # Bad day values fall back to today.
+    assert kiosk.get(f"/display?token={token}&day=junk").status_code == 200
+    conn.close()
