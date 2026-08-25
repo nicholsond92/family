@@ -267,15 +267,49 @@ html, body { height: 100%; }
 .dnothing { color: #d8d2c6; font-size: 1vw; font-weight: 700; text-align: center; padding-top: 1.4vw; }
 
 /* ---- today view ---- */
-.tlunch {
-  border: 1px dashed var(--line);
-  border-radius: 1vw;
-  padding: 0.6vw 1vw;
+.tlunchrow {
+  display: flex;
+  gap: 0.8vw;
+  flex-wrap: wrap;
   margin-bottom: 0.8vw;
-  background: var(--card);
-  box-shadow: var(--shadow);
 }
-.tlunchtext { font-size: 1.35vw; font-weight: 700; }
+.tlunchcard {
+  flex: 1 1 22vw;
+  display: flex;
+  align-items: center;
+  gap: 0.8vw;
+  background: var(--card);
+  border-radius: 1vw;
+  box-shadow: var(--shadow);
+  padding: 0.55vw 0.9vw;
+  min-width: 0;
+}
+.tlunchbody { display: flex; flex-direction: column; min-width: 0; }
+.tlunchtext { font-size: 1.15vw; font-weight: 700; line-height: 1.3; }
+.dschool {
+  width: 2.6vw;
+  height: 2.6vw;
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 1vw;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.dschool-xs {
+  width: 1.15vw;
+  height: 1.15vw;
+  min-width: 16px;
+  min-height: 16px;
+  font-size: 0.55vw;
+  margin-right: 0.3vw;
+  vertical-align: text-bottom;
+}
 .tallday { display: flex; gap: 0.5vw; flex-wrap: wrap; margin-bottom: 0.8vw; }
 .talldaychip {
   display: inline-flex;

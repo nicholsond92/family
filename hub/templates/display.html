@@ -76,12 +76,21 @@
 
       <div class="dcalsub" id="cal-today">
       {% if today_day %}
-      {% for l in lunches.get(today_day.iso, []) %}
-      <div class="tlunch">
-        <span class="dlunchtag">Lunch{% if l.label %} · {{ l.label }}{% endif %}</span>
-        <span class="tlunchtext">{{ l.text }}</span>
+      {% set day_lunches = lunches.get(today_day.iso, []) %}
+      {% if day_lunches %}
+      <div class="tlunchrow">
+        {% for l in day_lunches %}
+        {% set b = l.label | school_badge %}
+        <div class="tlunchcard">
+          <span class="dschool" style="background: {{ b.color }}">{{ b.initials }}</span>
+          <span class="tlunchbody">
+            <span class="dlunchtag">Lunch{% if l.label %} · {{ l.label }}{% endif %}</span>
+            <span class="tlunchtext">{{ l.text }}</span>
+          </span>
+        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
+      {% endif %}
 
       {% if today_allday %}
       <div class="tallday">
@@ -175,8 +184,9 @@
           {% endif %}
           {% endfor %}
           {% for l in lunches.get(day.iso, []) %}
-          <div class="dlunch" title="School lunch">
-            <span class="dlunchtag">Lunch{% if l.label %} · {{ l.label }}{% endif %}</span>
+          {% set b = l.label | school_badge %}
+          <div class="dlunch" title="School lunch{% if l.label %} — {{ l.label }}{% endif %}">
+            <span class="dlunchtag"><span class="dschool dschool-xs" style="background: {{ b.color }}">{{ b.initials }}</span>Lunch{% if l.label %} · {{ l.label }}{% endif %}</span>
             <span class="dlunchtext">{{ l.text }}</span>
           </div>
           {% endfor %}

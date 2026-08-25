@@ -364,3 +364,16 @@ def test_parse_fastdirect_nested_menu_tables():
                         "Drink", "Chicken Sandwich Tray"]
     assert set(days) == {3, 4, 24, 25}
     assert hidden["LunchStatYear"] == "2027"
+
+
+def test_school_badge():
+    from hub.app import school_badge
+    sp = school_badge("St. Paul")
+    assert sp["initials"] == "SP"
+    wf = school_badge("Washington & Franklin")
+    assert wf["initials"] == "WF"
+    assert school_badge("Truman")["initials"] == "T"
+    # Stable across calls; merged/blank labels get the neutral plate badge.
+    assert school_badge("St. Paul") == sp
+    assert school_badge("All schools")["initials"] == "🍽"
+    assert school_badge("")["initials"] == "🍽"

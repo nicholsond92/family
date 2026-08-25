@@ -44,6 +44,24 @@ HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 HHMM = re.compile(r"^(\d{1,2}):(\d{2})$")
 
 
+# Stable badge colors for school monograms — distinct from the kid/adult
+# palette so lunch badges read as "places", not people.
+SCHOOL_COLORS = ["#b45309", "#0e7490", "#7c3aed", "#be185d",
+                 "#15803d", "#b91c1c", "#4338ca", "#a16207"]
+
+
+def school_badge(label: str) -> dict:
+    """Monogram badge for a school lunch label: initials + a stable color
+    derived from the label, so each school keeps its identity everywhere."""
+    label = (label or "").strip()
+    if not label or label.lower() == "all schools":
+        return {"initials": "🍽", "color": "#8a8378"}
+    words = [w for w in re.split(r"[^A-Za-z0-9]+", label) if w]
+    initials = "".join(w[0] for w in words[:2]).upper() or label[:1].upper()
+    color = SCHOOL_COLORS[sum(label.lower().encode()) % len(SCHOOL_COLORS)]
+    return {"initials": initials, "color": color}
+
+
 def _hhmm(value: str) -> str | None:
     """Normalized 'HH:MM' or None."""
     m = HHMM.match((value or "").strip())
@@ -401,6 +419,7 @@ def create_app() -> FastAPI:
         return t.strftime("%-I:%M%p").lower().replace(":00", "")
 
     templates.env.filters["fmt_time"] = fmt_time
+    templates.env.filters["school_badge"] = school_badge
     templates.env.filters["fmt_date"] = lambda d: (
         date.fromisoformat(d) if isinstance(d, str) else d
     ).strftime("%a %b %-d")
