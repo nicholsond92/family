@@ -90,9 +90,39 @@
 
       <div class="dcalsub" id="cal-today">
       {% if today_day %}
+      {% if banners %}
+      <!-- Who's where today — the first morning question, answered without
+           leaving the Today view. -->
+      <div class="twho">
+        {% for b in banners %}
+        {% if b.custodian %}
+        <span class="twhoitem">
+          <span class="davatar davatar-sm" style="background: {{ b.custodian['color'] }}">{{ b.custodian['name'] | first_name | first }}</span>
+          <strong>{{ b.custodian['name'] | first_name }}</strong>
+          <span class="twhodots">{% for k in kids_by_circle.get(b.circle_id, []) %}<span class="ddot" style="background: {{ k['color'] }}" title="{{ k['name'] }}"></span>{% endfor %}</span>
+          {% if b.next_custodian and b.switch_text == 'tomorrow' %}
+          <span class="twhoswitch">→ {{ b.next_custodian['name'] | first_name }} tomorrow {{ b.handoff | fmt_time }}</span>
+          {% endif %}
+        </span>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
       {% set day_lunches = lunches.get(today_day.iso, []) %}
       {% if day_lunches %}
-      <div class="tlunchrow">
+      <!-- Lunch matters in the morning: a slim bar (tap for details) that
+           disappears after 1pm. -->
+      <div class="tlunchbar" id="lunchbar" role="button" title="Show full menus">
+        <span class="dlunchtag">Lunch</span>
+        {% for l in day_lunches %}
+        {% set b = l.label | school_badge %}
+        <span class="tlunchbaritem">
+          {% if l.logos %}<img class="dschool dschool-xs dschool-img" src="{{ l.logos[0] }}" alt="">{% else %}<span class="dschool dschool-xs" style="background: {{ b.color }}">{{ b.initials }}</span>{% endif %}
+          <span class="tlunchbartext">{{ l.text }}</span>
+        </span>
+        {% endfor %}
+      </div>
+      <div class="tlunchrow" id="lunchrow" hidden>
         {% for l in day_lunches %}
         {% set b = l.label | school_badge %}
         <div class="tlunchcard">
@@ -545,6 +575,21 @@
   }
   markProgress();
   setInterval(markProgress, 60000);
+
+  // --- Lunch bar: slim in the morning, tap for details, gone after 1pm. ---
+  const lunchBar = document.getElementById("lunchbar");
+  const lunchRow = document.getElementById("lunchrow");
+  if (lunchBar) {
+    if (new Date().getHours() >= 13) lunchBar.hidden = true;
+    lunchBar.addEventListener("click", () => {
+      lunchBar.hidden = true;
+      if (lunchRow) lunchRow.hidden = false;
+    });
+    if (lunchRow) lunchRow.addEventListener("click", () => {
+      lunchRow.hidden = true;
+      if (new Date().getHours() < 13) lunchBar.hidden = false;
+    });
+  }
 
   // Refresh the schedule every 5 minutes (URL keeps token and view) —
   // never yank the page out from under someone typing in the modal, and
