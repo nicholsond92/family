@@ -51,6 +51,20 @@ def test_database_url_strips_quotes_and_whitespace(monkeypatch):
     assert db.database_url() == "postgresql://u@h/db"
 
 
+def test_literal_percent_in_paramless_query(tmp_path):
+    # LIKE 'prefix:%' with no parameters must work on both backends
+    # (regression: psycopg scanned for placeholders when given an empty
+    # params tuple and choked on the literal %).
+    conn = db.connect(str(tmp_path / "t.db"))
+    db.set_setting(conn, "lunch_cache:1", "x")
+    db.set_setting(conn, "keep", "y")
+    conn.execute("DELETE FROM settings WHERE key LIKE 'lunch_cache:%'")
+    conn.commit()
+    assert db.get_setting(conn, "lunch_cache:1") is None
+    assert db.get_setting(conn, "keep") == "y"
+    conn.close()
+
+
 def test_database_url_empty_when_unset(monkeypatch):
     monkeypatch.delenv("HUB_DATABASE_URL", raising=False)
     monkeypatch.delenv("POSTGRES_URL", raising=False)
