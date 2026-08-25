@@ -64,6 +64,64 @@
 </div>
 
 <div class="card">
+  <h2>Daily routines</h2>
+  <p class="muted small" style="margin:0 0 0.6rem">Recurring reminders on the wall
+  display's Today view that follow the custody schedule — e.g. "picks up the girls
+  from school" at 3:00pm shows as <em>Dylan picks up the girls from school</em> on
+  your days and <em>Jennifer picks up…</em> on hers. Or pin a routine to one adult.</p>
+  {% for r in routines %}
+  <div class="feedrow">
+    <div>
+      <strong>{{ 'Whoever has the kids' if r.who == 'custodian' else (parents_list | selectattr('id', 'equalto', r.who | int) | map(attribute='name') | first) }}</strong>
+      {{ r.label }}
+      <span class="muted small">· {{ r.time }} ·
+        {% for d in r.days %}{{ ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][d] }}{% if not loop.last %}, {% endif %}{% endfor %}
+        {% for c in circle_rows %}{% if c.id == r.circle_id %} · {{ c.label }}{% endif %}{% endfor %}
+      </span>
+    </div>
+    <form method="post" action="/settings/routines/{{ loop.index0 }}/delete">
+      <button class="btn danger" type="submit">Remove</button>
+    </form>
+  </div>
+  {% endfor %}
+  <form method="post" action="/settings/routines/add" class="stack">
+    <div class="grid3">
+      <label>What happens <span class="muted small">(finishes the sentence "Dylan …")</span>
+        <input name="label" placeholder="picks up the girls from school" required>
+      </label>
+      <label>Time
+        <input name="time" type="time" value="15:00" required>
+      </label>
+      <label>Which kids
+        <select name="circle_id" required>
+          {% for c in circle_rows %}<option value="{{ c.id }}">{{ c.label or c.name }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <div class="grid2">
+      <label>Who does it
+        <select name="who">
+          <option value="custodian">Whoever has the kids that day (follows custody)</option>
+          {% for p in parents_list %}<option value="{{ p['id'] }}">Always {{ p['name'] | first_name }}</option>{% endfor %}
+        </select>
+      </label>
+      <fieldset>
+        <legend>Days</legend>
+        <div class="kidchecks">
+          {% for day in ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] %}
+          <label class="checkline">
+            <input type="checkbox" name="days" value="{{ loop.index0 }}"
+                   {% if loop.index0 < 5 %}checked{% endif %}> {{ day }}
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+    </div>
+    <div><button class="btn primary" type="submit">Add routine</button></div>
+  </form>
+</div>
+
+<div class="card">
   <h2>Appearance</h2>
   <form method="post" action="/settings/appearance" class="row">
     <label>My theme

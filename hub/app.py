@@ -393,6 +393,53 @@ def create_app() -> FastAPI:
     ).strftime("%a %b %-d")
     templates.env.filters["first_name"] = lambda s: (s or "").split()[0] if s else ""
 
+    def get_routines(conn) -> list[dict]:
+        raw = db.get_setting(conn, "routines", "") or "[]"
+        try:
+            routines = json.loads(raw)
+            return [r for r in routines if isinstance(r, dict) and r.get("label")]
+        except ValueError:
+            return []
+
+    def save_routines(conn, routines: list[dict]) -> None:
+        db.set_setting(conn, "routines", json.dumps(routines))
+
+    def routines_for_day(conn, d: date) -> list[dict]:
+        """Routine reminders resolved against the custody schedule for a
+        date: 'picks up the girls at 3pm' becomes whoever actually has the
+        kids that day (or a pinned adult)."""
+        parent_by_id = {p["id"]: p for p in parents(conn)}
+        kid_rows = circle_kid_rows(conn)
+        out = []
+        for rt in get_routines(conn):
+            days = rt.get("days") or [0, 1, 2, 3, 4]
+            if d.weekday() not in days:
+                continue
+            circle_id = rt.get("circle_id")
+            who = rt.get("who", "custodian")
+            if who == "custodian":
+                pid = custody.custodian_on(conn, circle_id, d) if circle_id else None
+            else:
+                try:
+                    pid = int(who)
+                except (TypeError, ValueError):
+                    pid = None
+            parent = parent_by_id.get(pid)
+            if not parent:
+                continue
+            out.append({
+                "is_routine": True,
+                "start_time": rt.get("time") or "12:00",
+                "end_time": None,
+                "title": rt["label"],
+                "parent": parent,
+                "kids": kid_rows.get(circle_id, []),
+                "visible": True,
+                "all_day": 0,
+                "location": "",
+            })
+        return out
+
     def home_parent_ids(conn) -> set[int]:
         """Adults who live where the wall display hangs. Stored at setup
         (you + your partner); older databases fall back to the hub creator
@@ -1345,6 +1392,16 @@ def create_app() -> FastAPI:
                 d for d in (ctx["days"] + next_ctx["days"]) if d["date"] >= today
             ][:7]
             lunches = lunch.lunches_for(conn, [d["date"] for d in upcoming_days])
+            today_allday, today_timeline = [], []
+            if upcoming_days:
+                today_events = upcoming_days[0]["events"]
+                today_allday = [e for e in today_events if e["all_day"]]
+                timed = [{**e, "is_routine": False}
+                         for e in today_events if not e["all_day"]]
+                today_timeline = sorted(
+                    timed + routines_for_day(conn, today),
+                    key=lambda x: x.get("start_time") or "99:99",
+                )
             banners = []
             for cid, schedule in ctx["schedules"].items():
                 who = custody.custodian_on(conn, cid, today, schedule)
@@ -1392,6 +1449,8 @@ def create_app() -> FastAPI:
                 home_color=db.get_setting(conn, "display_home_color") or "#45a06c",
                 away_color=db.get_setting(conn, "display_away_color") or "#b1a99e",
                 home_ids=home_parent_ids(conn),
+                today_allday=today_allday,
+                today_timeline=today_timeline,
             )
         finally:
             conn.close()
@@ -1438,6 +1497,7 @@ def create_app() -> FastAPI:
                 home_color=db.get_setting(conn, "display_home_color") or "#45a06c",
                 away_color=db.get_setting(conn, "display_away_color") or "#b1a99e",
                 home_ids=home_parent_ids(conn),
+                routines=get_routines(conn),
                 lunch_menus=lunch.get_menus(conn),
                 lunch_ignore=(
                     db.get_setting(conn, "lunch_ignore")
@@ -1644,6 +1704,55 @@ def create_app() -> FastAPI:
                 "<h1>Lunch menu test</h1>" + body +
                 "<p><a href='/settings'>Back to settings</a></p></div>"
             )
+        finally:
+            conn.close()
+
+    @app.post("/settings/routines/add")
+    async def settings_routine_add(request: Request):
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            form = await request.form()
+            label = (form.get("label") or "").strip()
+            time_val = form.get("time") or "15:00"
+            try:
+                datetime.strptime(time_val, "%H:%M")
+            except ValueError:
+                time_val = "15:00"
+            circle_id = int(form["circle_id"]) if form.get("circle_id") else None
+            who = form.get("who") or "custodian"
+            if who != "custodian":
+                valid = {str(p["id"]) for p in parents(conn)}
+                if who not in valid:
+                    who = "custodian"
+            days = sorted({
+                int(x) for x in form.getlist("days") if x.isdigit() and int(x) < 7
+            }) or [0, 1, 2, 3, 4]
+            if label and circle_id:
+                routines = get_routines(conn)
+                routines.append({
+                    "label": label, "time": time_val, "circle_id": circle_id,
+                    "who": who, "days": days,
+                })
+                save_routines(conn, routines)
+            return RedirectResponse("/settings", status_code=303)
+        finally:
+            conn.close()
+
+    @app.post("/settings/routines/{index}/delete")
+    def settings_routine_delete(request: Request, index: int):
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            routines = get_routines(conn)
+            if 0 <= index < len(routines):
+                routines.pop(index)
+                save_routines(conn, routines)
+            return RedirectResponse("/settings", status_code=303)
         finally:
             conn.close()
 

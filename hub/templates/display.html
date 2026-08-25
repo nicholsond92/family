@@ -69,11 +69,9 @@
       </div>
       {% endfor %}
 
-      {% set allday = today_day.events | selectattr("all_day") | list %}
-      {% set timed = today_day.events | rejectattr("all_day") | list %}
-      {% if allday %}
+      {% if today_allday %}
       <div class="tallday">
-        {% for ev in allday %}
+        {% for ev in today_allday %}
         {% set tint = ev.kids[0]['color'] if ev.kids else '#a8a29e' %}
         <span class="talldaychip" style="background: {{ tint }}{{ ta }}">
           {% for k in ev.kids %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}
@@ -84,13 +82,27 @@
       {% endif %}
 
       <div class="ttimeline">
-        {% for ev in timed %}
-        {% set tint = ev.kids[0]['color'] if ev.kids else '#a8a29e' %}
+        {% for ev in today_timeline %}
         <div class="tevent" data-start="{{ ev.start_time }}" data-end="{{ ev.end_time or ev.start_time }}">
           <div class="ttime">
             <span class="tstart">{{ ev.start_time | fmt_time }}</span>
             {% if ev.end_time %}<span class="tend">{{ ev.end_time | fmt_time }}</span>{% endif %}
           </div>
+          {% if ev.is_routine %}
+          <div class="tcard troutine">
+            <div class="ttitle">
+              <span class="davatar davatar-sm" style="background: {{ ev.parent['color'] }}">{{ ev.parent['name'] | first_name | first }}</span>
+              <strong>{{ ev.parent['name'] | first_name }}</strong> {{ ev.title }}
+              <span class="tnext">Up next</span>
+            </div>
+            {% if ev.kids %}
+            <div class="tkids">
+              {% for k in ev.kids %}<span class="tkid" style="background: {{ k['color'] }}{{ ta }}"><span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}</span>{% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          {% else %}
+          {% set tint = ev.kids[0]['color'] if ev.kids else '#a8a29e' %}
           <div class="tcard" style="background: {{ tint }}{{ ta }}">
             <div class="ttitle">{% if ev.visible %}{{ ev.title }}{% else %}Busy{% endif %}
               <span class="tnext">Up next</span></div>
@@ -101,9 +113,10 @@
             </div>
             {% endif %}
           </div>
+          {% endif %}
         </div>
         {% endfor %}
-        {% if not timed and not allday %}
+        {% if not today_timeline and not today_allday %}
         <div class="tnothing">Nothing scheduled today</div>
         {% endif %}
       </div>
