@@ -368,6 +368,88 @@ html, body { height: 100%; }
 }
 .ttmitem { display: inline-flex; align-items: center; gap: 0.4vw; }
 
+/* ---- week/month navigation ---- */
+.dnav {
+  display: flex;
+  align-items: center;
+  gap: 0.7vw;
+  padding-bottom: 0.7vw;
+}
+.dnavbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.2vw;
+  min-height: 2.2vw;
+  padding: 0 0.8vw;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 1.2vw;
+  font-weight: 800;
+}
+.dnavlabel { font-size: 1.25vw; font-weight: 800; }
+.dnavhome { color: #4a3000; background: var(--today); font-size: 0.95vw; }
+
+/* ---- month grid ---- */
+.dmonthhead {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.45vw;
+  padding-bottom: 0.35vw;
+  text-align: center;
+  font-size: 0.85vw;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.dmonth {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(var(--mrows, 5), 1fr);
+  gap: 0.45vw;
+  min-height: 0;
+}
+.dmcell {
+  background: var(--card);
+  border-radius: 0.7vw;
+  box-shadow: var(--shadow);
+  padding: 0.35vw 0.45vw;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25vw;
+  overflow: hidden;
+  min-height: 0;
+}
+.dmcell.dmout { opacity: 0.38; }
+.dmcell.dmtoday { outline: 0.18vw solid var(--today); }
+.dmtop { display: flex; justify-content: space-between; align-items: center; }
+.dmdaynum { font-size: 1vw; font-weight: 800; }
+.dmtoday .dmdaynum { color: var(--today); }
+.dmstrip { display: inline-flex; gap: 0.2vw; }
+.dmchip {
+  display: inline-block;
+  width: 0.85vw;
+  height: 0.4vw;
+  border-radius: 999px;
+}
+.dmev {
+  border-radius: 0.4vw;
+  padding: 0.12vw 0.4vw;
+  font-size: 0.78vw;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dmevtime { color: var(--muted); font-weight: 800; }
+.dmmore { font-size: 0.72vw; font-weight: 800; color: var(--muted); padding-left: 0.2vw; }
+
 /* ---- quick-add modal ---- */
 .dadd { margin-top: auto; }
 .dmodal {

@@ -1396,7 +1396,8 @@ def create_app() -> FastAPI:
             conn.close()
 
     @app.get("/display", response_class=HTMLResponse)
-    def display(request: Request, token: str | None = None):
+    def display(request: Request, token: str | None = None,
+                week: str | None = None, month: str | None = None):
         conn = get_conn()
         try:
             expected = db.get_setting(conn, "display_token")
@@ -1419,7 +1420,44 @@ def create_app() -> FastAPI:
             upcoming_days = [
                 d for d in (ctx["days"] + next_ctx["days"]) if d["date"] >= today
             ][:7]
-            lunches = lunch.lunches_for(conn, [d["date"] for d in upcoming_days])
+
+            # Week view: offset 0 is the rolling next-7-days; ±N are
+            # Monday-anchored calendar weeks reachable with the arrows.
+            try:
+                week_offset = max(-52, min(52, int(week or 0)))
+            except ValueError:
+                week_offset = 0
+            if week_offset:
+                wstart = week_start + timedelta(weeks=week_offset)
+                week_days = week_context(conn, wstart, None, today)["days"]
+                week_label = "{} – {}".format(
+                    wstart.strftime("%b %-d"),
+                    (wstart + timedelta(days=6)).strftime("%b %-d"),
+                )
+            else:
+                week_days = upcoming_days
+                week_label = "Next 7 days"
+
+            # Month view: a Monday-aligned grid of week_context weeks.
+            try:
+                y, m = (month or "").split("-")
+                month_first = date(int(y), int(m), 1)
+            except ValueError:
+                month_first = today.replace(day=1)
+            if abs((month_first.year - today.year) * 12
+                   + month_first.month - today.month) > 18:
+                month_first = today.replace(day=1)
+            month_last = (month_first.replace(day=28)
+                          + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+            month_weeks = []
+            wstart = custody.monday_of(month_first)
+            while wstart <= month_last:
+                month_weeks.append(week_context(conn, wstart, None, today)["days"])
+                wstart += timedelta(days=7)
+
+            lunch_dates = {d["date"] for d in upcoming_days}
+            lunch_dates.update(d["date"] for d in week_days)
+            lunches = lunch.lunches_for(conn, sorted(lunch_dates))
             today_allday, today_timeline = [], []
             if upcoming_days:
                 today_events = upcoming_days[0]["events"]
@@ -1470,6 +1508,13 @@ def create_app() -> FastAPI:
                 days=upcoming_days, today=today, banners=banners, kids=kids(conn),
                 kids_by_circle=circle_kid_rows(conn),
                 parents_list=parents(conn), display_token=token or "",
+                week_days=week_days, week_offset=week_offset,
+                week_label=week_label,
+                month_weeks=month_weeks, month_first=month_first,
+                month_label=month_first.strftime("%B %Y"),
+                month_prev=(month_first - timedelta(days=1)).strftime("%Y-%m"),
+                month_next=(month_last + timedelta(days=1)).strftime("%Y-%m"),
+                month_is_current=(month_first == today.replace(day=1)),
                 weather=fetch_weather(conn),
                 display_theme=db.get_setting(conn, "display_theme", "warm") or "warm",
                 lunches=lunches,
