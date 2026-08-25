@@ -105,7 +105,7 @@ def test_setup_creates_blended_household(env, client):
     assert sum(1 for r in rows if r["kind"] == "all" and r["owner_parent_id"]) == 4
     assert sum(1 for r in rows if r["kind"] == "custody") == 1
     # Calendar shows both circles' custody chips.
-    r = client.get("/")
+    r = client.get("/calendar")
     assert "Ava &amp; Emma" in r.text
     assert "Leo &amp; Max" in r.text
     conn.close()
@@ -128,15 +128,15 @@ def test_private_event_masked_outside_circle(env, client):
     event_id = conn.execute("SELECT id FROM events").fetchone()["id"]
 
     # Dylan (creator + co-parent) sees the details on the calendar.
-    assert "Emma therapy" in client.get(f"/?start={when}").text
+    assert "Emma therapy" in client.get(f"/calendar?start={when}").text
     # Mark sees a Busy block, not the details, and can't open the event.
-    mark_cal = mark.get(f"/?start={when}").text
+    mark_cal = mark.get(f"/calendar?start={when}").text
     assert "Emma therapy" not in mark_cal
     assert "Busy" in mark_cal
     assert mark.get(f"/events/{event_id}/edit").status_code == 404
     # Sarah (Emma's other co-parent) has full access.
     sarah = join(env, conn, "Sarah", "sarahpass")
-    assert "Emma therapy" in sarah.get(f"/?start={when}").text
+    assert "Emma therapy" in sarah.get(f"/calendar?start={when}").text
     assert sarah.get(f"/events/{event_id}/edit").status_code == 200
 
     # Personal feeds enforce the same rule.
@@ -262,7 +262,8 @@ def test_login_checks_all_rows_with_same_name(env, client):
     for password in ("pass1234", "sarahpass"):
         fresh = TestClient(env, follow_redirects=True)
         r = fresh.post("/login", data={"name": "Sam Parent", "password": password})
-        assert "Week of" in r.text
+        # Login lands on the board (the display is the app's front door).
+        assert 'id="view-calendar"' in r.text
     assert "Wrong name" in TestClient(env, follow_redirects=True).post(
         "/login", data={"name": "Sam Parent", "password": "nope"}
     ).text
@@ -520,13 +521,13 @@ def test_themes_and_custom_colors(env, client):
 
     # Per-adult web theme + household display theme.
     client.post("/settings/appearance", data={"my_theme": "dark", "display_theme": "dark"})
-    assert 'data-theme="dark"' in client.get("/").text
+    assert 'data-theme="dark"' in client.get("/calendar").text
     token = db.get_setting(conn, "display_token")
     display = TestClient(env).get(f"/display?token={token}").text
     assert "theme-dark" in display
     # Another adult keeps their own (light) theme.
     sarah = join(env, conn, "Sarah", "sarahpass")
-    assert 'data-theme="light"' in sarah.get("/").text
+    assert 'data-theme="light"' in sarah.get("/calendar").text
     conn.close()
 
 

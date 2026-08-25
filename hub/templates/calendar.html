@@ -2,9 +2,9 @@
 {% block content %}
 <div class="toolbar">
   <div class="weeknav">
-    <a class="btn" href="/?start={{ prev_week }}">← Prev</a>
-    <a class="btn" href="/">Today</a>
-    <a class="btn" href="/?start={{ next_week }}">Next →</a>
+    <a class="btn" href="/calendar?start={{ prev_week }}">← Prev</a>
+    <a class="btn" href="/calendar">Today</a>
+    <a class="btn" href="/calendar?start={{ next_week }}">Next →</a>
     <h1>Week of {{ week_start.strftime("%B %-d, %Y") }}</h1>
   </div>
   <div>

@@ -862,7 +862,20 @@ def create_app() -> FastAPI:
     # ----------------------------------------------------------------- calendar
 
     @app.get("/", response_class=HTMLResponse)
-    def home(request: Request, start: str | None = None):
+    def home(request: Request):
+        """The board is the app; management pages are the back office. A
+        logged-in adult (or the installed PWA) lands on the display."""
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            return RedirectResponse("/display", status_code=303)
+        finally:
+            conn.close()
+
+    @app.get("/calendar", response_class=HTMLResponse)
+    def calendar_page(request: Request, start: str | None = None):
         conn = get_conn()
         try:
             redirect = guard(request, conn)
@@ -969,7 +982,7 @@ def create_app() -> FastAPI:
                 )
                 _set_event_kids(conn, event_id, f["kid_ids"])
             conn.commit()
-            return RedirectResponse(f"/?start={f['date']}", status_code=303)
+            return RedirectResponse(f"/calendar?start={f['date']}", status_code=303)
         finally:
             conn.close()
 
@@ -1028,7 +1041,7 @@ def create_app() -> FastAPI:
             )
             _set_event_kids(conn, event_id, f["kid_ids"])
             conn.commit()
-            return RedirectResponse(f"/?start={f['date']}", status_code=303)
+            return RedirectResponse(f"/calendar?start={f['date']}", status_code=303)
         finally:
             conn.close()
 
@@ -1048,7 +1061,7 @@ def create_app() -> FastAPI:
             else:
                 conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
             conn.commit()
-            return RedirectResponse(f"/?start={ev['date']}", status_code=303)
+            return RedirectResponse(f"/calendar?start={ev['date']}", status_code=303)
         finally:
             conn.close()
 

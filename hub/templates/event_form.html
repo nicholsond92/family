@@ -63,7 +63,7 @@
     </label>
     <div class="row">
       <button class="btn primary" type="submit">Save</button>
-      <a class="btn" href="/?start={{ event['date'] if event else default_date }}">Cancel</a>
+      <a class="btn" href="/calendar?start={{ event['date'] if event else default_date }}">Cancel</a>
     </div>
   </form>
   {% if event %}
