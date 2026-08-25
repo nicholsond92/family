@@ -134,7 +134,25 @@ def _db_hints(exc_text: str) -> list[str]:
     return hints
 
 
+def _is_connection_error(exc: Exception) -> bool:
+    return type(exc).__name__ in (
+        "OperationalError", "InterfaceError", "ConnectionTimeout",
+    )
+
+
 def _db_error_page(exc: Exception) -> HTMLResponse:
+    if not _is_connection_error(exc):
+        # A query failed — an application bug, not a reachability problem.
+        detail = html.escape(f"{type(exc).__name__}: {exc}")
+        return HTMLResponse(
+            "<div style='font-family:sans-serif;max-width:640px;margin:4rem auto'>"
+            "<h1>Family Hub hit a database error</h1>"
+            f"<p style='color:#a11622'><code>{detail}</code></p>"
+            "<p>The database is reachable, but this request failed. Your data "
+            "is safe — the change was rolled back. Please report the text "
+            "above so it can be fixed.</p></div>",
+            status_code=500,
+        )
     items = "".join(f"<li>{html.escape(h)}</li>" for h in _db_hints(str(exc)))
     detail = html.escape(f"{type(exc).__name__}: {exc}")
     tried = ""

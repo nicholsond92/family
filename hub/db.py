@@ -209,7 +209,10 @@ class PgConnection:
         return sql.replace("?", "%s")
 
     def execute(self, sql: str, params=()):
-        return self.raw.execute(self._translate(sql), params)
+        # Pass None when there are no params: psycopg only scans the query
+        # for %-placeholders when params are given, so literal % characters
+        # (e.g. LIKE 'prefix:%') stay safe in parameter-less statements.
+        return self.raw.execute(self._translate(sql), params or None)
 
     def executescript(self, sql: str):
         return self.raw.execute(sql)
