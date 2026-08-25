@@ -325,3 +325,35 @@ def test_no_school_days_never_shown_as_lunch(tmp_path):
     assert "2026-08-26" not in out
     assert out["2026-08-27"][0]["text"] == "Cheese Pizza, Green Beans"
     conn.close()
+
+
+# Mirrors the real St. Paul page structure: menu day cells hold a nested
+# table of item rows with a price column, many closing tags omitted.
+FASTDIR_NESTED = """
+<html><body>
+<table width=100% class="ShowPersCalTable1" cellpadding=0 cellspacing=0 border=1 bgcolor=white><tr><td colspan=7 align=center><table class="ShowPersCalTable2" border=0><tr valign=top><td align=center nowrap><FORM ACTION=https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl METHOD=POST><INPUT TYPE=hidden NAME=WOcode VALUE=><INPUT TYPE=hidden NAME=LunchStatYear VALUE=2027><INPUT TYPE=hidden NAME=PassActiveTest VALUE=0><INPUT TYPE=hidden NAME=ReqYR VALUE=2026><INPUT TYPE=hidden NAME=ReqMO VALUE=7><input type=image src="arrowl.gif"></form><font size=6><B>August 2026</B></font></td></tr></table></td></tr>
+<tr><td>Sunday<td>Monday<td>Tuesday</tr>
+<tr><td>2<td>3 <i>No School</i><td>4 <i>No School</i></tr>
+<tr><td>23
+<td>24
+<table width=100%><tr valign=top><td>Biscuit&amp;Gravy,Sausage,Hashbrown,Fruit,Drink<td align=right>3.75</tr><tr><td>PBJ Tray/Grilled Cheese Tray<td align=right>3.75</tr><tr><td>Chicken Sandwich<td align=right>2.00</tr></table>
+<td>25
+<table width=100%><tr valign=top><td>Macaroni&amp;Cheese,Green Beans,Roll,Fruit,Drink<td align=right>3.75</tr><tr><td>Chicken Sandwich Tray<td align=right>4.00</tr></table>
+</tr>
+</table>
+<font size=2>**************Large Side $1.25 // Small Side $0.75 // Water or Milk $0.50</font>
+</body></html>
+"""
+
+
+def test_parse_fastdirect_nested_menu_tables():
+    days, year_month, _, hidden = lunch.parse_fastdirect(FASTDIR_NESTED)
+    assert year_month == (2026, 8)
+    assert days[3] == ["No School"]
+    # Nested item tables fold into the day cell; price column dropped.
+    assert days[24] == ["Biscuit&Gravy,Sausage,Hashbrown,Fruit,Drink",
+                        "PBJ Tray/Grilled Cheese Tray", "Chicken Sandwich"]
+    assert days[25] == ["Macaroni&Cheese,Green Beans,Roll,Fruit,Drink",
+                        "Chicken Sandwich Tray"]
+    assert set(days) == {3, 4, 24, 25}
+    assert hidden["LunchStatYear"] == "2027"

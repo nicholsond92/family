@@ -214,7 +214,13 @@ _FD_DAY_RE = re.compile(r"^(\d{1,2})(?!\d)")
 class _FastDirParser(HTMLParser):
     """Collects table-cell texts (with <br>/<p>/<div> as line breaks), the
     page's plain text, links back to the Lunch.pl script, and the hidden
-    fields of the page's own month-nav forms (for replaying their POST)."""
+    fields of the page's own month-nav forms (for replaying their POST).
+
+    Menu day cells hold a nested table (item rows with a price column), so
+    cells are tracked as a stack keyed by table depth: a <td> at a deeper
+    table nests instead of terminating the day cell, and its text folds back
+    into the parent when it closes. A <td>/<tr> at the same depth closes the
+    open cell — the site's old HTML omits many closing tags."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -222,19 +228,34 @@ class _FastDirParser(HTMLParser):
         self.text: list[str] = []
         self.links: list[str] = []
         self.hidden: dict[str, str] = {}
-        self._cell: list[str] | None = None
+        self._stack: list[tuple[int, list[str]]] = []
+        self._tdepth = 0
 
-    def _close_cell(self):
-        if self._cell is not None:
-            self.cells.append("".join(self._cell))
-            self._cell = None
+    def _close_top(self):
+        _, buf = self._stack.pop()
+        text = "".join(buf)
+        self.cells.append(text)
+        if self._stack:
+            self._stack[-1][1].append("\n" + text + "\n")
+
+    def _close_at_depth(self):
+        while self._stack and self._stack[-1][0] >= self._tdepth:
+            self._close_top()
+
+    def close_all(self):
+        while self._stack:
+            self._close_top()
 
     def handle_starttag(self, tag, attrs):
-        if tag in ("td", "th"):
-            self._close_cell()
-            self._cell = []
-        elif tag in ("br", "p", "div", "li", "tr") and self._cell is not None:
-            self._cell.append("\n")
+        if tag == "table":
+            self._tdepth += 1
+        elif tag in ("td", "th"):
+            self._close_at_depth()
+            self._stack.append((self._tdepth, []))
+        elif tag == "tr":
+            self._close_at_depth()
+        elif tag in ("br", "p", "div", "li") and self._stack:
+            self._stack[-1][1].append("\n")
         elif tag == "a":
             href = next((v for k, v in attrs if k == "href"), "") or ""
             if "lunch" in href.lower():
@@ -245,15 +266,18 @@ class _FastDirParser(HTMLParser):
                 self.hidden[a["name"]] = a.get("value") or ""
 
     def handle_endtag(self, tag):
-        if tag in ("td", "th", "tr", "table"):
-            self._close_cell()
-        elif tag in ("p", "div", "li") and self._cell is not None:
-            self._cell.append("\n")
+        if tag == "table":
+            self._close_at_depth()
+            self._tdepth = max(0, self._tdepth - 1)
+        elif tag in ("td", "th", "tr"):
+            self._close_at_depth()
+        elif tag in ("p", "div", "li") and self._stack:
+            self._stack[-1][1].append("\n")
 
     def handle_data(self, data):
         self.text.append(data)
-        if self._cell is not None:
-            self._cell.append(data)
+        if self._stack:
+            self._stack[-1][1].append(data)
 
 
 def parse_fastdirect(page: str):
@@ -264,7 +288,7 @@ def parse_fastdirect(page: str):
     wasn't a calendar."""
     parser = _FastDirParser()
     parser.feed(page)
-    parser._close_cell()
+    parser.close_all()
     m = _FD_MONTH_RE.search(" ".join(parser.text))
     year_month = None
     if m:
@@ -285,6 +309,9 @@ def parse_fastdirect(page: str):
         items = []
         for item in [rest] + lines[1:]:
             item = re.sub(r"\s+", " ", item).strip()
+            # Drop a trailing price ("Chicken Sandwich 2.00" / price-only
+            # lines from the menu's price column).
+            item = re.sub(r"[\s,]*\$?\d+\.\d{2}$", "", item).strip()
             if any(c.isalpha() for c in item) and len(item) < 80:
                 items.append(item)
         if items and day not in days:
