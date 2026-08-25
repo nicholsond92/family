@@ -290,6 +290,7 @@ html, body { height: 100%; }
 .twhodots { display: inline-flex; gap: 0.28vw; }
 .twhoswitch { color: var(--muted); font-weight: 700; font-size: 0.95vw; }
 
+a.tlunchbar { color: inherit; text-decoration: none; }
 .tlunchbar {
   display: flex;
   align-items: center;
