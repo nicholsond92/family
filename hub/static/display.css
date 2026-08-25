@@ -89,6 +89,7 @@ html, body { height: 100%; }
 .ddate { font-size: 2.8vw; font-weight: 800; letter-spacing: -0.01em; }
 .dheadright { display: flex; align-items: center; gap: 2.2vw; }
 .dweather { display: flex; align-items: center; gap: 0.8vw; }
+.dwicon { font-size: 3.2vw; line-height: 1; }
 .dtemp { font-size: 3vw; font-weight: 800; }
 .dwmeta { display: flex; flex-direction: column; font-size: 1vw; font-weight: 700; color: var(--muted); line-height: 1.5; }
 .dclock { font-size: 3.6vw; font-weight: 800; font-variant-numeric: tabular-nums; }
