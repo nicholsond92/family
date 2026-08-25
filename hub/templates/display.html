@@ -48,6 +48,7 @@
       <div class="dheadright">
         {% if weather %}
         <div class="dweather">
+          {% if weather.icon %}<div class="dwicon" aria-hidden="true">{{ weather.icon }}</div>{% endif %}
           <div class="dtemp">{{ weather.temp }}°</div>
           <div class="dwmeta">
             {% if weather.cond %}<span>{{ weather.cond }}</span>{% endif %}
