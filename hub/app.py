@@ -7,6 +7,7 @@ co-parents and the creator; everyone else sees a Busy block. Calendar feeds
 are per-adult so a shared URL can't leak private details.
 """
 
+import base64
 import csv
 import html
 import io
@@ -60,6 +61,28 @@ def school_badge(label: str) -> dict:
     initials = "".join(w[0] for w in words[:2]).upper() or label[:1].upper()
     color = SCHOOL_COLORS[sum(label.lower().encode()) % len(SCHOOL_COLORS)]
     return {"initials": initials, "color": color}
+
+
+def process_logo(data: bytes) -> str | None:
+    """Downscale an uploaded school logo to a small square badge and inline
+    it as a PNG data URI — the serverless host has no persistent disk, so
+    logos live in the settings row alongside their menu."""
+    if not data or len(data) > 5 * 1024 * 1024:
+        return None
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        im = Image.open(io.BytesIO(data)).convert("RGBA")
+        im.thumbnail((96, 96))
+        canvas = Image.new("RGBA", (96, 96), (255, 255, 255, 0))
+        canvas.paste(im, ((96 - im.width) // 2, (96 - im.height) // 2), im)
+        buf = io.BytesIO()
+        canvas.save(buf, "PNG", optimize=True)
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:  # noqa: BLE001 — a bad image never breaks settings
+        return None
 
 
 def _hhmm(value: str) -> str | None:
@@ -1789,12 +1812,27 @@ def create_app() -> FastAPI:
             if redirect:
                 return redirect
             form = await request.form()
+            old_menus = lunch.get_menus(conn)
             menus = []
             for i in (1, 2, 3, 4):
                 url = (form.get(f"lunch_url{i}") or "").strip()
                 label = (form.get(f"lunch_label{i}") or "").strip()
-                if url and lunch.valid_menu_url(url):
-                    menus.append({"url": url, "label": label})
+                if not url or not lunch.valid_menu_url(url):
+                    continue
+                menu = {"url": url, "label": label}
+                upload = form.get(f"lunch_logo{i}")
+                logo = None
+                if upload is not None and hasattr(upload, "read"):
+                    logo = process_logo(await upload.read())
+                if logo:
+                    menu["logo"] = logo
+                elif not form.get(f"lunch_logo_clear{i}"):
+                    # Keep the stored logo for this menu (matched by URL).
+                    old = next((m for m in old_menus
+                                if m.get("url") == url), None)
+                    if old and old.get("logo"):
+                        menu["logo"] = old["logo"]
+                menus.append(menu)
             lunch.set_menus(conn, menus)
             if "lunch_ignore" in form:
                 db.set_setting(conn, "lunch_ignore",

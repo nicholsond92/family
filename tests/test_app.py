@@ -708,3 +708,31 @@ def test_tasks_and_rewards(env, client):
     page = TestClient(env).get(f"/display?token={token}").text
     assert "Brush teeth" not in page
     conn.close()
+
+
+def test_lunch_logo_upload_roundtrip(env, client):
+    import io as _io
+    from PIL import Image
+    do_setup(client)
+    conn = db.connect()
+
+    buf = _io.BytesIO()
+    Image.new("RGBA", (300, 200), (180, 30, 30, 255)).save(buf, "PNG")
+    r = client.post(
+        "/settings/lunch",
+        data={"lunch_url1": "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl",
+              "lunch_label1": "St. Paul"},
+        files={"lunch_logo1": ("shield.png", buf.getvalue(), "image/png")})
+    assert r.status_code == 200
+    from hub import lunch as lunchmod
+    menu = lunchmod.get_menus(conn)[0]
+    assert menu["logo"].startswith("data:image/png;base64,")
+    # Re-saving without a new file keeps the logo; the clear box removes it.
+    client.post("/settings/lunch", data={
+        "lunch_url1": menu["url"], "lunch_label1": "St. Paul"})
+    assert lunchmod.get_menus(conn)[0].get("logo") == menu["logo"]
+    client.post("/settings/lunch", data={
+        "lunch_url1": menu["url"], "lunch_label1": "St. Paul",
+        "lunch_logo_clear1": "on"})
+    assert "logo" not in lunchmod.get_menus(conn)[0]
+    conn.close()
