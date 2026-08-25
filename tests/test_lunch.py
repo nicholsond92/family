@@ -121,7 +121,8 @@ def test_lunches_for_uses_cache(tmp_path, monkeypatch):
     out = lunch.lunches_for(conn, days)
     # Staples filtered by the default ignore list; shouting title-cased.
     assert out == {"2026-08-25": [
-        {"label": "Elementary", "text": "Mini Corn Dogs, Tossed Side Salad"}
+        {"label": "Elementary", "text": "Mini Corn Dogs, Tossed Side Salad",
+         "logos": []}
     ]}
     # Second call within the TTL hits the cache, not the network.
     out2 = lunch.lunches_for(conn, days)
@@ -179,12 +180,13 @@ def test_lunches_for_merges_schools_with_same_lunch(tmp_path, monkeypatch):
 
     # All three schools serve the same lunch on the 25th -> one combined line.
     assert out["2026-08-25"] == [
-        {"label": "All schools", "text": "Mini Corn Dogs"}
+        {"label": "All schools", "text": "Mini Corn Dogs", "logos": []}
     ]
     # On the 26th only Washington & Franklin match; Truman stays separate.
     assert out["2026-08-26"] == [
-        {"label": "Washington & Franklin", "text": "Cheese Pizza, Carrots"},
-        {"label": "Truman", "text": "Walking Taco"},
+        {"label": "Washington & Franklin", "text": "Cheese Pizza, Carrots",
+         "logos": []},
+        {"label": "Truman", "text": "Walking Taco", "logos": []},
     ]
     conn.close()
 
@@ -377,3 +379,29 @@ def test_school_badge():
     assert school_badge("St. Paul") == sp
     assert school_badge("All schools")["initials"] == "🍽"
     assert school_badge("")["initials"] == "🍽"
+
+
+def test_merge_carries_school_logos(tmp_path, monkeypatch):
+    from hub import db
+    conn = db.connect(str(tmp_path / "t.db"))
+    lunch.set_menus(conn, [
+        {"url": "https://menus.healthepro.com/organizations/1/menus/1",
+         "label": "Washington", "logo": "data:image/png;base64,KNIGHTS"},
+        {"url": "https://menus.healthepro.com/organizations/1/menus/2",
+         "label": "Franklin", "logo": "data:image/png;base64,KNIGHTS"},
+        {"url": "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl",
+         "label": "St. Paul", "logo": "data:image/png;base64,SHIELD"},
+    ])
+
+    def fake_fetch(url, year, month):
+        if "fastdir" in url:
+            return {"2026-08-25": ["Mac & Cheese"]}, []
+        return {"2026-08-25": ["Pizza"]}, []
+
+    monkeypatch.setattr(lunch, "fetch_month", fake_fetch)
+    out = lunch.lunches_for(conn, [date(2026, 8, 25)])
+    entries = {e["label"]: e for e in out["2026-08-25"]}
+    # District schools merge and share one deduped logo; St. Paul keeps its own.
+    assert entries["Washington & Franklin"]["logos"] == ["data:image/png;base64,KNIGHTS"]
+    assert entries["St. Paul"]["logos"] == ["data:image/png;base64,SHIELD"]
+    conn.close()

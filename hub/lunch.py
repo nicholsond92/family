@@ -522,22 +522,26 @@ def _join_labels(labels: list[str]) -> str:
 def _merge_identical(entries: list[dict], total_menus: int) -> list[dict]:
     """Collapse menus serving the same lunch into one entry. Schools in the
     same district often share a menu; the board shouldn't repeat itself.
-    Comparison ignores item order and case."""
+    Comparison ignores item order and case. School logos ride along (and
+    dedupe — district schools usually share one logo)."""
     merged: list[dict] = []
     for entry in entries:
         key = tuple(sorted(p.strip().lower() for p in entry["text"].split(",")))
         match = next((m for m in merged if m["key"] == key), None)
         if match is None:
             merged.append({"key": key, "labels": [entry["label"]],
+                           "logos": list(entry.get("logos") or []),
                            "text": entry["text"]})
         else:
             match["labels"].append(entry["label"])
+            match["logos"].extend(entry.get("logos") or [])
     every_menu_matches = len(merged) == 1 and len(entries) == total_menus
     return [
         {
             "label": ("All schools" if every_menu_matches
                       else _join_labels(m["labels"])),
             "text": m["text"],
+            "logos": list(dict.fromkeys(m["logos"])),
         }
         for m in merged
     ]
@@ -601,9 +605,11 @@ def lunches_for(conn, dates: list[date]) -> dict[str, list[dict]]:
                 and not any(term in item.lower() for term in terms)
             ]
             if items:
-                out.setdefault(iso, []).append(
-                    {"label": label, "text": ", ".join(items)}
-                )
+                out.setdefault(iso, []).append({
+                    "label": label,
+                    "text": ", ".join(items),
+                    "logos": [menu["logo"]] if menu.get("logo") else [],
+                })
     return {
         iso: (_merge_identical(entries, len(menus)) if len(entries) > 1
               else entries)

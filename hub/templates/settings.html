@@ -39,7 +39,7 @@
   navigate to your school's lunch menu and paste the page address here (it looks like
   …/organizations/123/sites/456/menus/78901). FastDirect school sites work too —
   paste the school's Lunch.pl calendar address (…fastdir.com/~fastdir/cgi/…/Lunch.pl).</p>
-  <form method="post" action="/settings/lunch" class="stack">
+  <form method="post" action="/settings/lunch" enctype="multipart/form-data" class="stack">
     {% for i in (1, 2, 3, 4) %}
     {% set m = lunch_menus[i - 1] if lunch_menus | length >= i else None %}
     <div class="grid2">
@@ -50,6 +50,15 @@
       <label>Label <span class="muted small">(shown when more than one is set)</span>
         <input name="lunch_label{{ i }}" value="{{ m.label if m else '' }}" placeholder="Truman">
       </label>
+    </div>
+    <div class="row" style="align-items:center; gap:0.8rem">
+      {% if m and m.logo %}<img src="{{ m.logo }}" alt="" style="width:28px;height:28px;border-radius:6px;background:#fff">{% endif %}
+      <label class="small">School logo <span class="muted small">(optional — shows on the display's lunch badge)</span>
+        <input type="file" name="lunch_logo{{ i }}" accept="image/*">
+      </label>
+      {% if m and m.logo %}
+      <label class="checkline small"><input type="checkbox" name="lunch_logo_clear{{ i }}"> Remove logo</label>
+      {% endif %}
     </div>
     {% endfor %}
     <p class="muted small" style="margin:0">Schools serving the same lunch on a day are

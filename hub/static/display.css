@@ -310,6 +310,13 @@ html, body { height: 100%; }
   margin-right: 0.3vw;
   vertical-align: text-bottom;
 }
+.dschool-img {
+  background: #fff;
+  border-radius: 26%;
+  object-fit: contain;
+  padding: 0.12vw;
+  box-shadow: var(--shadow);
+}
 .tallday { display: flex; gap: 0.5vw; flex-wrap: wrap; margin-bottom: 0.8vw; }
 .talldaychip {
   display: inline-flex;

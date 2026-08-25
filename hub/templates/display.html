@@ -82,7 +82,11 @@
         {% for l in day_lunches %}
         {% set b = l.label | school_badge %}
         <div class="tlunchcard">
+          {% if l.logos %}
+          {% for lg in l.logos %}<img class="dschool dschool-img" src="{{ lg }}" alt="">{% endfor %}
+          {% else %}
           <span class="dschool" style="background: {{ b.color }}">{{ b.initials }}</span>
+          {% endif %}
           <span class="tlunchbody">
             <span class="dlunchtag">Lunch{% if l.label %} · {{ l.label }}{% endif %}</span>
             <span class="tlunchtext">{{ l.text }}</span>
@@ -186,7 +190,7 @@
           {% for l in lunches.get(day.iso, []) %}
           {% set b = l.label | school_badge %}
           <div class="dlunch" title="School lunch{% if l.label %} — {{ l.label }}{% endif %}">
-            <span class="dlunchtag"><span class="dschool dschool-xs" style="background: {{ b.color }}">{{ b.initials }}</span>Lunch{% if l.label %} · {{ l.label }}{% endif %}</span>
+            <span class="dlunchtag">{% if l.logos %}<img class="dschool dschool-xs dschool-img" src="{{ l.logos[0] }}" alt="">{% else %}<span class="dschool dschool-xs" style="background: {{ b.color }}">{{ b.initials }}</span>{% endif %}Lunch{% if l.label %} · {{ l.label }}{% endif %}</span>
             <span class="dlunchtext">{{ l.text }}</span>
           </div>
           {% endfor %}
