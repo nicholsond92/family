@@ -88,6 +88,11 @@ def test_prettify_item():
     assert lunch.prettify_item("BBQ RIB SANDWICH") == "BBQ Rib Sandwich"
     # Mixed-case input is left alone.
     assert lunch.prettify_item("Cheese Pizza") == "Cheese Pizza"
+    # Cramped school-menu punctuation gets friendly spacing.
+    assert lunch.prettify_item("Macaroni&Cheese") == "Macaroni & Cheese"
+    assert (lunch.prettify_item("Pancakes,Sausage Patty,Hashbrowns,fruit")
+            == "Pancakes, Sausage Patty, Hashbrowns, fruit")
+    assert lunch.prettify_item("Ketchup & Mustard") == "Ketchup & Mustard"
 
 
 def test_parse_month_garbage_is_empty():
@@ -350,10 +355,12 @@ def test_parse_fastdirect_nested_menu_tables():
     days, year_month, _, hidden = lunch.parse_fastdirect(FASTDIR_NESTED)
     assert year_month == (2026, 8)
     assert days[3] == ["No School"]
-    # Nested item tables fold into the day cell; price column dropped.
-    assert days[24] == ["Biscuit&Gravy,Sausage,Hashbrown,Fruit,Drink",
-                        "PBJ Tray/Grilled Cheese Tray", "Chicken Sandwich"]
-    assert days[25] == ["Macaroni&Cheese,Green Beans,Roll,Fruit,Drink",
-                        "Chicken Sandwich Tray"]
+    # Nested item tables fold into the day cell; price column dropped;
+    # comma-run lines split into one item per food.
+    assert days[24] == ["Biscuit&Gravy", "Sausage", "Hashbrown", "Fruit",
+                        "Drink", "PBJ Tray/Grilled Cheese Tray",
+                        "Chicken Sandwich"]
+    assert days[25] == ["Macaroni&Cheese", "Green Beans", "Roll", "Fruit",
+                        "Drink", "Chicken Sandwich Tray"]
     assert set(days) == {3, 4, 24, 25}
     assert hidden["LunchStatYear"] == "2027"

@@ -307,13 +307,18 @@ def parse_fastdirect(page: str):
         day = int(dm.group(1))
         rest = lines[0][dm.end():].strip(" .:-–—")
         items = []
-        for item in [rest] + lines[1:]:
-            item = re.sub(r"\s+", " ", item).strip()
+        for line in [rest] + lines[1:]:
+            line = re.sub(r"\s+", " ", line).strip()
             # Drop a trailing price ("Chicken Sandwich 2.00" / price-only
             # lines from the menu's price column).
-            item = re.sub(r"[\s,]*\$?\d+\.\d{2}$", "", item).strip()
-            if any(c.isalpha() for c in item) and len(item) < 80:
-                items.append(item)
+            line = re.sub(r"[\s,]*\$?\d+\.\d{2}$", "", line).strip()
+            # A day's foods come crammed into one comma-run line; split so
+            # each food is its own item (and the Hide-items filter matches
+            # one food, not the whole line).
+            for item in line.split(","):
+                item = item.strip()
+                if any(c.isalpha() for c in item) and len(item) < 80:
+                    items.append(item)
         if items and day not in days:
             days[day] = items
     if len(days) < 3:
@@ -479,7 +484,10 @@ def _is_no_school(item: str) -> bool:
 
 def prettify_item(item: str) -> str:
     """Title-case shouting menu text; leave mixed-case text alone. Short
-    all-caps tokens (BBQ, PBJ) are preserved."""
+    all-caps tokens (BBQ, PBJ) are preserved. Cramped punctuation from
+    school menus ("Macaroni&Cheese,Green Beans") gets friendly spacing."""
+    item = re.sub(r",(?=\S)", ", ", item)
+    item = re.sub(r"\s*&\s*", " & ", item)
     letters = [c for c in item if c.isalpha()]
     if not letters or sum(c.isupper() for c in letters) / len(letters) < 0.8:
         return item
