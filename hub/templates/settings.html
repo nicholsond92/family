@@ -81,6 +81,38 @@
     <button class="btn" type="submit">Save</button>
   </form>
   <p class="muted small">Your theme is just for you — every adult picks their own.</p>
+  <h3>Wall display custody colors</h3>
+  <form method="post" action="/settings/appearance" class="stack">
+    <div class="grid3">
+      <label>Mode
+        <select name="custody_mode">
+          <option value="home_away" {% if custody_mode == "home_away" %}selected{% endif %}>Home &amp; away (one color when the kids are here)</option>
+          <option value="parent" {% if custody_mode == "parent" %}selected{% endif %}>By parent (each parent's own color)</option>
+        </select>
+      </label>
+      <label>Home color
+        <input type="color" name="display_home_color" value="{{ home_color }}">
+      </label>
+      <label>Away color
+        <input type="color" name="display_away_color" value="{{ away_color }}">
+      </label>
+    </div>
+    <fieldset>
+      <legend>Adults in this home</legend>
+      <div class="kidchecks">
+        {% for p in parents_list %}
+        <label class="checkline">
+          <input type="checkbox" name="home_parents" value="{{ p['id'] }}"
+                 {% if p['id'] in home_ids %}checked{% endif %}>
+          {{ p['name'] }}
+        </label>
+        {% endfor %}
+      </div>
+      <p class="muted small" style="margin:0.4rem 0 0">When one of these adults has the
+      kids, the display shows the Home color; otherwise the Away color.</p>
+    </fieldset>
+    <div><button class="btn" type="submit">Save display colors</button></div>
+  </form>
 </div>
 
 <div class="card">

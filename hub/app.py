@@ -393,6 +393,35 @@ def create_app() -> FastAPI:
     ).strftime("%a %b %-d")
     templates.env.filters["first_name"] = lambda s: (s or "").split()[0] if s else ""
 
+    def home_parent_ids(conn) -> set[int]:
+        """Adults who live where the wall display hangs. Stored at setup
+        (you + your partner); older databases fall back to the hub creator
+        plus the first-created adult of each other circle."""
+        raw = db.get_setting(conn, "home_parent_ids", "") or ""
+        try:
+            ids = {int(x) for x in raw.split(",") if x.strip()}
+            if ids:
+                return ids
+        except ValueError:
+            pass
+        row = conn.execute("SELECT MIN(id) AS m FROM parents").fetchone()
+        if not row or row["m"] is None:
+            return set()
+        admin_id = row["m"]
+        stored = db.get_setting(conn, "admin_parent_id")
+        if stored:
+            try:
+                admin_id = int(stored)
+            except ValueError:
+                pass
+        ids = {admin_id}
+        members = circle_members(conn)
+        for cid, plist in members.items():
+            member_ids = [p["id"] for p in plist]
+            if admin_id not in member_ids and member_ids:
+                ids.add(min(member_ids))
+        return ids
+
     def fetch_weather(conn):
         """Current conditions for the wall display via Open-Meteo (no API key).
         Returns None unless a location is configured; never raises."""
@@ -529,6 +558,9 @@ def create_app() -> FastAPI:
             circle2 = None
             if partner_id and partner_co_id:
                 circle2 = add_circle(partner_id, partner_co_id)
+            # You (and your partner) live where the wall display hangs.
+            db.set_setting(conn, "home_parent_ids",
+                           ",".join(str(i) for i in [me_id, partner_id] if i))
 
             kid_index = 0
             for i in range(1, 7):
@@ -1355,6 +1387,11 @@ def create_app() -> FastAPI:
                 weather=fetch_weather(conn),
                 display_theme=db.get_setting(conn, "display_theme", "warm") or "warm",
                 lunches=lunches,
+                custody_mode=db.get_setting(conn, "display_custody_mode", "home_away")
+                or "home_away",
+                home_color=db.get_setting(conn, "display_home_color") or "#45a06c",
+                away_color=db.get_setting(conn, "display_away_color") or "#b1a99e",
+                home_ids=home_parent_ids(conn),
             )
         finally:
             conn.close()
@@ -1396,6 +1433,11 @@ def create_app() -> FastAPI:
                 weather_unit=db.get_setting(conn, "weather_unit", "fahrenheit"),
                 my_theme=db.get_setting(conn, f"theme:{me['id']}", "light") or "light",
                 display_theme=db.get_setting(conn, "display_theme", "warm") or "warm",
+                custody_mode=db.get_setting(conn, "display_custody_mode", "home_away")
+                or "home_away",
+                home_color=db.get_setting(conn, "display_home_color") or "#45a06c",
+                away_color=db.get_setting(conn, "display_away_color") or "#b1a99e",
+                home_ids=home_parent_ids(conn),
                 lunch_menus=lunch.get_menus(conn),
                 lunch_ignore=(
                     db.get_setting(conn, "lunch_ignore")
@@ -1618,6 +1660,20 @@ def create_app() -> FastAPI:
                 db.set_setting(conn, f"theme:{me['id']}", form["my_theme"])
             if form.get("display_theme") in ("warm", "dark"):
                 db.set_setting(conn, "display_theme", form["display_theme"])
+            if form.get("custody_mode") in ("home_away", "parent"):
+                db.set_setting(conn, "display_custody_mode", form["custody_mode"])
+            for key in ("display_home_color", "display_away_color"):
+                value = (form.get(key) or "").strip()
+                if HEX_COLOR.match(value):
+                    db.set_setting(conn, key, value)
+            if "custody_mode" in form:
+                valid_ids = {p["id"] for p in parents(conn)}
+                chosen = [
+                    x for x in form.getlist("home_parents")
+                    if x.isdigit() and int(x) in valid_ids
+                ]
+                if chosen:
+                    db.set_setting(conn, "home_parent_ids", ",".join(chosen))
             return RedirectResponse("/settings", status_code=303)
         finally:
             conn.close()

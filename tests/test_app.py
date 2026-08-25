@@ -364,6 +364,29 @@ def test_lunch_on_display(env, client, monkeypatch):
     conn.close()
 
 
+def test_home_away_custody_colors(env, client):
+    do_setup(client)
+    conn = db.connect()
+    token = db.get_setting(conn, "display_token")
+    display = TestClient(env).get(f"/display?token={token}").text
+    # Default mode is home & away: status badges and both colors render
+    # (the anchor week always includes at least one away day per circle).
+    assert 'class="dwhostatus"' in display
+    assert "#45a06c" in display and "#b1a99e" in display
+    assert "Kids home" in display
+    # Setup stored Dylan + Mark as the home adults.
+    assert db.get_setting(conn, "home_parent_ids") == "{},{}".format(
+        parent_id(conn, "Dylan"), parent_id(conn, "Mark")
+    )
+    # Switching back to per-parent coloring removes the badges.
+    client.post("/settings/appearance", data={
+        "my_theme": "light", "display_theme": "warm", "custody_mode": "parent",
+    })
+    display2 = TestClient(env).get(f"/display?token={token}").text
+    assert 'class="dwhostatus"' not in display2
+    conn.close()
+
+
 def test_display_has_tabbed_views(env, client):
     do_setup(client)
     conn = db.connect()
