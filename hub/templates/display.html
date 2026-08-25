@@ -393,6 +393,11 @@
       <input class="dfield" type="time" name="start_time">
     </div>
     <p class="dhint">Leave the time blank for an all-day event.</p>
+    <div class="dfieldrow">
+      <label class="dhint" style="flex:1; display:flex; flex-direction:column; gap:5px">Repeats weekly until <span style="font-weight:600">(leave blank for one-time)</span>
+        <input class="dfield" type="date" name="repeat_until">
+      </label>
+    </div>
     <div class="dpickrow">
       {% for k in kids %}
       <label class="dpick">

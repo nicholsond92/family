@@ -737,3 +737,27 @@ def test_lunch_logo_upload_roundtrip(env, client):
         "lunch_logo_clear1": "on"})
     assert "logo" not in lunchmod.get_menus(conn)[0]
     conn.close()
+
+
+def test_display_quick_add_recurring(env, client):
+    do_setup(client)
+    conn = db.connect()
+    token = db.get_setting(conn, "display_token")
+    dylan = conn.execute("SELECT id FROM parents WHERE name = 'Dylan'").fetchone()["id"]
+    start = date.today()
+    kiosk = TestClient(env, follow_redirects=False)
+    r = kiosk.post("/display/events/new", data={
+        "token": token, "title": "Piano lesson",
+        "date": start.isoformat(), "start_time": "16:00",
+        "repeat_until": (start + timedelta(weeks=3)).isoformat(),
+        "parent_id": str(dylan)})
+    assert r.status_code == 303
+    rows = conn.execute(
+        "SELECT date, series_id FROM events WHERE title = 'Piano lesson' "
+        "ORDER BY date").fetchall()
+    assert [row["date"] for row in rows] == [
+        (start + timedelta(weeks=i)).isoformat() for i in range(4)]
+    # One shared series id ties the occurrences together.
+    assert len({row["series_id"] for row in rows}) == 1
+    assert rows[0]["series_id"]
+    conn.close()

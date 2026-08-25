@@ -2051,19 +2051,32 @@ def create_app() -> FastAPI:
                 d = hub_today(conn)
             if title and adult:
                 start = _hhmm(form.get("start_time") or "")
-                event_id = db.insert_id(
-                    conn,
-                    "INSERT INTO events(title, category, date, start_time, "
-                    "end_time, all_day, location, notes, private, series_id, "
-                    "created_by, created_at) "
-                    "VALUES(?, 'other', ?, ?, NULL, ?, '', '', 0, NULL, ?, ?)",
-                    (title, d.isoformat(), start, 0 if start else 1,
-                     adult["id"], datetime.now().isoformat(timespec="seconds")),
-                )
-                _set_event_kids(
-                    conn, event_id,
-                    [int(k) for k in form.getlist("kid_ids")],
-                )
+                dates = [d]
+                series_id = None
+                if form.get("repeat_until"):
+                    try:
+                        until = min(date.fromisoformat(form["repeat_until"]),
+                                    d + timedelta(weeks=52))
+                        series_id = uuid.uuid4().hex
+                        nxt = d + timedelta(weeks=1)
+                        while nxt <= until:
+                            dates.append(nxt)
+                            nxt += timedelta(weeks=1)
+                    except ValueError:
+                        pass
+                kid_ids = [int(k) for k in form.getlist("kid_ids")]
+                now = datetime.now().isoformat(timespec="seconds")
+                for day in dates:
+                    event_id = db.insert_id(
+                        conn,
+                        "INSERT INTO events(title, category, date, start_time, "
+                        "end_time, all_day, location, notes, private, series_id, "
+                        "created_by, created_at) "
+                        "VALUES(?, 'other', ?, ?, NULL, ?, '', '', 0, ?, ?, ?)",
+                        (title, day.isoformat(), start, 0 if start else 1,
+                         series_id, adult["id"], now),
+                    )
+                    _set_event_kids(conn, event_id, kid_ids)
                 conn.commit()
             dest = "/display?view=today"
             if token:
