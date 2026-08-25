@@ -616,12 +616,14 @@ def test_display_quick_add(env, client):
     r = kiosk.post("/display/events/new", data={
         "token": token, "title": "Dentist for Emma",
         "date": date.today().isoformat(), "start_time": "15:30",
+        "end_time": "16:15",
         "parent_id": str(dylan), "kid_ids": [str(kid_id)]})
     assert r.status_code == 303
     assert "/display" in r.headers["location"]
 
     ev = conn.execute("SELECT * FROM events WHERE title = 'Dentist for Emma'").fetchone()
     assert ev["start_time"] == "15:30"
+    assert ev["end_time"] == "16:15"
     assert ev["created_by"] == dylan
     assert ev["private"] == 0
 

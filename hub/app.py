@@ -2043,6 +2043,7 @@ def create_app() -> FastAPI:
                 d = hub_today(conn)
             if title and adult:
                 start = _hhmm(form.get("start_time") or "")
+                end = _hhmm(form.get("end_time") or "") if start else None
                 dates = [d]
                 series_id = None
                 if form.get("repeat_until"):
@@ -2067,8 +2068,8 @@ def create_app() -> FastAPI:
                         "INSERT INTO events(title, category, date, start_time, "
                         "end_time, all_day, location, notes, private, series_id, "
                         "created_by, created_at, reminder_minutes) "
-                        "VALUES(?, 'other', ?, ?, NULL, ?, '', '', 0, ?, ?, ?, ?)",
-                        (title, day.isoformat(), start, 0 if start else 1,
+                        "VALUES(?, 'other', ?, ?, ?, ?, '', '', 0, ?, ?, ?, ?)",
+                        (title, day.isoformat(), start, end, 0 if start else 1,
                          series_id, adult["id"], now, reminder),
                     )
                     _set_event_kids(conn, event_id, kid_ids)
