@@ -213,13 +213,15 @@ _FD_DAY_RE = re.compile(r"^(\d{1,2})(?!\d)")
 
 class _FastDirParser(HTMLParser):
     """Collects table-cell texts (with <br>/<p>/<div> as line breaks), the
-    page's plain text, and links back to the Lunch.pl script (month nav)."""
+    page's plain text, links back to the Lunch.pl script, and the hidden
+    fields of the page's own month-nav forms (for replaying their POST)."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.cells: list[str] = []
         self.text: list[str] = []
         self.links: list[str] = []
+        self.hidden: dict[str, str] = {}
         self._cell: list[str] | None = None
 
     def _close_cell(self):
@@ -237,6 +239,10 @@ class _FastDirParser(HTMLParser):
             href = next((v for k, v in attrs if k == "href"), "") or ""
             if "lunch" in href.lower():
                 self.links.append(href)
+        elif tag == "input":
+            a = dict(attrs)
+            if (a.get("type") or "").lower() == "hidden" and a.get("name"):
+                self.hidden[a["name"]] = a.get("value") or ""
 
     def handle_endtag(self, tag):
         if tag in ("td", "th", "tr", "table"):
@@ -251,10 +257,11 @@ class _FastDirParser(HTMLParser):
 
 
 def parse_fastdirect(page: str):
-    """(days, (year, month) or None, month_nav_links) from a FastDirect
-    lunch calendar page. days is {day_of_month: [item, ...]} — a cell counts
-    as a menu day when its text starts with a day number followed by lines
-    of item text. Fewer than 3 such cells means this wasn't a calendar."""
+    """(days, (year, month) or None, month_nav_links, hidden_form_fields)
+    from a FastDirect lunch calendar page. days is {day_of_month: [item, …]}
+    — a cell counts as a menu day when its text starts with a day number
+    followed by lines of item text. Fewer than 3 such cells means this
+    wasn't a calendar."""
     parser = _FastDirParser()
     parser.feed(page)
     parser._close_cell()
@@ -284,7 +291,7 @@ def parse_fastdirect(page: str):
             days[day] = items
     if len(days) < 3:
         days = {}
-    return days, year_month, list(dict.fromkeys(parser.links))
+    return days, year_month, list(dict.fromkeys(parser.links)), parser.hidden
 
 
 def _fastdir_get(url: str, attempts: list, post_data: dict | None = None):
@@ -318,12 +325,20 @@ def fetch_fastdirect_month(url: str, year: int, month: int):
     GET or POST). Any Lunch.pl hrefs on the page are kept as a fallback."""
     attempts: list = []
     found_links: list[str] = []
+    form_fields: dict[str, str] = {}
 
     def try_page(page):
         if page is None:
             return None
-        days, year_month, links = parse_fastdirect(page)
+        days, year_month, links, hidden = parse_fastdirect(page)
         found_links.extend(links)
+        for key, value in hidden.items():
+            form_fields.setdefault(key, value)
+        # Say what came back so the test page is diagnosable without
+        # digging through raw HTML excerpts.
+        shows = (date(year_month[0], year_month[1], 1).strftime("%B %Y")
+                 if year_month else "no recognizable month")
+        attempts[-1]["note"] = f"page shows {shows}, {len(days)} menu day(s)"
         # A page with no readable month header is trusted only for the
         # month the site defaults to — the current one.
         trusted = (year_month == (year, month) or (
@@ -348,8 +363,11 @@ def fetch_fastdirect_month(url: str, year: int, month: int):
                                 attempts))
     if out is not None:
         return out, attempts
-    out = try_page(_fastdir_get(url, attempts, post_data={
-        "ReqYR": str(year), "ReqMO": str(month), "PassActiveTest": "0"}))
+    # Replay the page's own month-nav form: all its hidden fields, with the
+    # month we want. Fall back to the bare minimum when none were found.
+    post = {**form_fields, "ReqYR": str(year), "ReqMO": str(month)}
+    post.setdefault("PassActiveTest", "0")
+    out = try_page(_fastdir_get(url, attempts, post_data=post))
     if out is not None:
         return out, attempts
     seen = {url}

@@ -196,6 +196,9 @@ FASTDIR_SEPT = """
 <html><head><title>FastDirect Communications</title></head><body>
 <center><font size=4><b>Hot Lunch Menu</b></font><br>
 <b>September, 2026</b>
+<FORM ACTION=https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl METHOD=POST><INPUT TYPE=hidden NAME=WOcode VALUE=>
+<INPUT TYPE=hidden NAME=LunchStatYear VALUE=2027><INPUT TYPE=hidden NAME=PassActiveTest VALUE=0>
+<INPUT TYPE=hidden NAME=ReqYR VALUE=2026><INPUT TYPE=hidden NAME=ReqMO VALUE=8><input type=image src="arrowl.gif"></FORM>
 <a href="/~fastdir/cgi/0124/Lunch.pl?Month=8&Year=2026">&lt;&lt; Prev</a>
 <a href="/~fastdir/cgi/0124/Lunch.pl?Month=10&Year=2026">Next &gt;&gt;</a>
 <table border=1>
@@ -214,7 +217,7 @@ FASTDIR_OCT = FASTDIR_SEPT.replace("September, 2026", "October, 2026").replace(
 
 
 def test_parse_fastdirect_calendar():
-    days, year_month, links = lunch.parse_fastdirect(FASTDIR_SEPT)
+    days, year_month, links, hidden = lunch.parse_fastdirect(FASTDIR_SEPT)
     assert year_month == (2026, 9)
     assert days[1] == ["CHEESE PIZZA", "Green Beans", "Milk"]
     assert days[2] == ["Chicken Nuggets", "Dinner Roll"]
@@ -223,10 +226,13 @@ def test_parse_fastdirect_calendar():
     # Weekday headers and empty cells aren't menu days.
     assert set(days) == {1, 2, 3, 8, 10}
     assert any("Month=10" in link for link in links)
+    # The month-nav form's hidden fields are captured for POST replay.
+    assert hidden["LunchStatYear"] == "2027"
+    assert hidden["WOcode"] == ""
 
 
 def test_parse_fastdirect_rejects_non_calendar():
-    days, _, _ = lunch.parse_fastdirect(
+    days, _, _, _ = lunch.parse_fastdirect(
         "<table><tr><td>1<br>Only</td><td>2<br>Two days</td></tr></table>")
     assert days == {}
 
@@ -268,12 +274,15 @@ def test_fetch_fastdirect_other_months_via_reqyr_reqmo(monkeypatch):
 def test_fetch_fastdirect_post_fallback(monkeypatch):
     base = "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl"
 
+    posts = []
+
     def fake_get(url, attempts, post_data=None):
         body = None
         if url == base and post_data is None:
             body = FASTDIR_SEPT
         elif (url == base and post_data
               and post_data.get("ReqMO") == "10"):
+            posts.append(post_data)
             body = FASTDIR_OCT
         attempts.append({"endpoint": url, "status": 200 if body else 404,
                          "excerpt": ""})
@@ -282,6 +291,9 @@ def test_fetch_fastdirect_post_fallback(monkeypatch):
     monkeypatch.setattr(lunch, "_fastdir_get", fake_get)
     out, _ = lunch.fetch_month(base, 2026, 10)
     assert out["2026-10-01"] == ["PANCAKES & SAUSAGE", "Green Beans", "Milk"]
+    # The POST replays the page's own hidden form fields, ReqYR/ReqMO swapped.
+    assert posts and posts[0]["LunchStatYear"] == "2027"
+    assert posts[0]["ReqMO"] == "10" and posts[0]["ReqYR"] == "2026"
 
 
 def test_valid_menu_url():
