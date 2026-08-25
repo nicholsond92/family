@@ -628,3 +628,32 @@ def test_display_quick_add(env, client):
     assert "addmodal" in page and "Add to the calendar" in page
     assert "Dentist for Emma" in page
     conn.close()
+
+
+def test_display_month_and_week_navigation(env, client):
+    do_setup(client)
+    conn = db.connect()
+    token = db.get_setting(conn, "display_token")
+    # An event two months out, visible only when that month is requested.
+    target = (date.today().replace(day=1) + timedelta(days=62)).replace(day=15)
+    client.post("/settings/events/import", data={
+        "rows": f"{target.isoformat()}, Far Future Field Trip"})
+    kiosk = TestClient(env)
+
+    page = kiosk.get(f"/display?token={token}").text
+    assert "view-month" in page and "dmonth" in page
+    assert date.today().strftime("%B %Y") in page
+    assert "Far Future Field Trip" not in page
+
+    month_q = target.strftime("%Y-%m")
+    page = kiosk.get(f"/display?token={token}&month={month_q}").text
+    assert target.strftime("%B %Y") in page
+    assert "Far Future Field Trip" in page
+    assert "Back to now" in page
+
+    # Week arrows: an offset week is Monday-anchored and labeled.
+    page = kiosk.get(f"/display?token={token}&week=1").text
+    assert "Back to now" in page
+    # Garbage offsets and months fall back to now instead of erroring.
+    assert kiosk.get(f"/display?token={token}&week=zzz&month=nope").status_code == 200
+    conn.close()
