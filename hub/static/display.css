@@ -368,6 +368,108 @@ html, body { height: 100%; }
 }
 .ttmitem { display: inline-flex; align-items: center; gap: 0.4vw; }
 
+/* ---- calendar sub-views (Today | Week | Month inside one tab) ---- */
+.dseg {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 0.25vw;
+  background: var(--card);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  padding: 0.28vw;
+  margin-bottom: 0.8vw;
+}
+.dsegbtn {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 1.05vw;
+  font-weight: 800;
+  padding: 0.4vw 1.4vw;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.dsegbtn.active { background: var(--today); color: #4a3000; }
+.dcalsub { display: none; flex: 1; flex-direction: column; min-height: 0; }
+.dcalsub.active { display: flex; }
+
+/* ---- tasks view ---- */
+.dtaskgrid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(24vw, 1fr));
+  gap: 0.9vw;
+  align-content: start;
+  overflow-y: auto;
+}
+.dtaskcard {
+  border-radius: 1.1vw;
+  box-shadow: var(--shadow);
+  padding: 0.9vw 1vw;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45vw;
+}
+.dtaskhead { display: flex; align-items: center; gap: 0.7vw; margin-bottom: 0.2vw; }
+.dtaskwho { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.dtaskname { font-size: 1.5vw; font-weight: 800; line-height: 1.15; }
+.dtaskmeta { font-size: 0.9vw; font-weight: 700; color: var(--muted); }
+.dtaskstars { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2vw; }
+.dstarpill {
+  background: var(--card);
+  border-radius: 999px;
+  padding: 0.22vw 0.8vw;
+  font-size: 1vw;
+  font-weight: 800;
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+}
+.dtaskreward { font-size: 0.8vw; font-weight: 700; color: var(--muted); }
+.dtasksec {
+  font-size: 0.85vw;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-top: 0.35vw;
+}
+.dtask {
+  display: flex;
+  align-items: center;
+  gap: 0.7vw;
+  border: none;
+  border-radius: 0.8vw;
+  padding: 0.55vw 0.75vw;
+  font-family: inherit;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.dtaskemoji { font-size: 1.7vw; line-height: 1; }
+.dtaskbody { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dtasklabel { font-size: 1.15vw; font-weight: 800; line-height: 1.2; }
+.dtasksub { font-size: 0.85vw; font-weight: 700; color: var(--muted); }
+.dtcheck {
+  width: 1.9vw;
+  height: 1.9vw;
+  min-width: 26px;
+  min-height: 26px;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: inset 0 0 0 2px var(--line);
+  color: transparent;
+  font-size: 1vw;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.dtask.tdone { box-shadow: inset 0 0 0 2px var(--kc); }
+.dtask.tdone .dtasklabel { text-decoration: line-through; opacity: 0.75; }
+.dtask.tdone .dtcheck { background: var(--kc); box-shadow: none; color: #fff; }
+
 /* ---- week/month navigation ---- */
 .dnav {
   display: flex;

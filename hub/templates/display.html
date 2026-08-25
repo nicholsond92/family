@@ -16,24 +16,18 @@
 
 <div class="dshell">
   <nav class="drail">
-    <button class="dtab" data-view="today" title="Today">
+    <button class="dtab" data-view="calendar" title="Calendar">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 9h18M8 3v4M16 3v4"/>
         <circle cx="12" cy="15" r="2.2" fill="currentColor" stroke="none"/>
       </svg>
-      <span>Today</span>
+      <span>Calendar</span>
     </button>
-    <button class="dtab" data-view="week" title="Week">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 9h18M8 3v4M16 3v4M9 13h.01M13 13h.01M17 13h.01M9 17h.01M13 17h.01"/>
+    <button class="dtab" data-view="tasks" title="Tasks">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 6h12M9 12h12M9 18h12"/><path d="M3.5 5.5l1.2 1.2L7 4.4M3.5 11.5l1.2 1.2L7 10.4M3.5 17.5l1.2 1.2L7 16.4"/>
       </svg>
-      <span>Week</span>
-    </button>
-    <button class="dtab" data-view="month" title="Month">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 9h18M8 3v4M16 3v4M7 13h2M11 13h2M15 13h2M7 17h2M11 17h2M15 17h2"/>
-      </svg>
-      <span>Month</span>
+      <span>Tasks</span>
     </button>
     <button class="dtab" data-view="custody" title="Custody">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -72,8 +66,16 @@
       </div>
     </header>
 
-    <!-- ============================== TODAY ============================== -->
-    <section class="dview" id="view-today">
+    <!-- ============================ CALENDAR ============================= -->
+    {% set tok = ('&token=' ~ display_token) if display_token else '' %}
+    <section class="dview" id="view-calendar">
+      <div class="dseg">
+        <button class="dsegbtn" data-cal="today">Today</button>
+        <button class="dsegbtn" data-cal="week">Week</button>
+        <button class="dsegbtn" data-cal="month">Month</button>
+      </div>
+
+      <div class="dcalsub" id="cal-today">
       {% if today_day %}
       {% for l in lunches.get(today_day.iso, []) %}
       <div class="tlunch">
@@ -144,17 +146,15 @@
       </div>
       {% endif %}
       {% endif %}
-    </section>
+      </div>
 
-    <!-- ============================== WEEK =============================== -->
-    {% set tok = ('&token=' ~ display_token) if display_token else '' %}
-    <section class="dview" id="view-week">
+      <div class="dcalsub" id="cal-week">
       <div class="dnav">
-        <a class="dnavbtn" href="/display?view=week&week={{ week_offset - 1 }}{{ tok }}">‹</a>
+        <a class="dnavbtn" href="/display?view=calendar&cal=week&week={{ week_offset - 1 }}{{ tok }}">‹</a>
         <span class="dnavlabel">{{ week_label }}</span>
-        <a class="dnavbtn" href="/display?view=week&week={{ week_offset + 1 }}{{ tok }}">›</a>
+        <a class="dnavbtn" href="/display?view=calendar&cal=week&week={{ week_offset + 1 }}{{ tok }}">›</a>
         {% if week_offset != 0 %}
-        <a class="dnavbtn dnavhome" href="/display?view=week{{ tok }}">Back to now</a>
+        <a class="dnavbtn dnavhome" href="/display?view=calendar&cal=week{{ tok }}">Back to now</a>
         {% endif %}
       </div>
       <div class="dweek">
@@ -200,16 +200,15 @@
         </div>
         {% endfor %}
       </div>
-    </section>
+      </div>
 
-    <!-- ============================== MONTH ============================== -->
-    <section class="dview" id="view-month">
+      <div class="dcalsub" id="cal-month">
       <div class="dnav">
-        <a class="dnavbtn" href="/display?view=month&month={{ month_prev }}{{ tok }}">‹</a>
+        <a class="dnavbtn" href="/display?view=calendar&cal=month&month={{ month_prev }}{{ tok }}">‹</a>
         <span class="dnavlabel">{{ month_label }}</span>
-        <a class="dnavbtn" href="/display?view=month&month={{ month_next }}{{ tok }}">›</a>
+        <a class="dnavbtn" href="/display?view=calendar&cal=month&month={{ month_next }}{{ tok }}">›</a>
         {% if not month_is_current %}
-        <a class="dnavbtn dnavhome" href="/display?view=month{{ tok }}">Back to now</a>
+        <a class="dnavbtn dnavhome" href="/display?view=calendar&cal=month{{ tok }}">Back to now</a>
         {% endif %}
       </div>
       <div class="dmonthhead">
@@ -245,6 +244,46 @@
         {% endfor %}
         {% endfor %}
       </div>
+      </div>
+    </section>
+
+    <!-- ============================== TASKS ============================== -->
+    <section class="dview" id="view-tasks">
+      {% if tasks_cards %}
+      <div class="dtaskgrid">
+        {% for card in tasks_cards %}
+        <div class="dtaskcard" style="background: {{ card.kid['color'] }}{{ ta }}">
+          <div class="dtaskhead">
+            <span class="davatar" style="background: {{ card.kid['color'] }}">{{ card.kid['name'][:1] }}</span>
+            <div class="dtaskwho">
+              <span class="dtaskname">{{ card.kid['name'] | first_name }}</span>
+              <span class="dtaskmeta"><span data-kid-done="{{ card.kid['id'] }}">{{ card.done_count }}</span>/{{ card.total }} today</span>
+            </div>
+            <div class="dtaskstars">
+              <span class="dstarpill">⭐ <span data-kid-stars="{{ card.kid['id'] }}">{{ card.stars_week }}</span>{% if card.goal %} / {{ card.goal }}{% endif %}</span>
+              {% if card.reward %}<span class="dtaskreward">{{ card.reward }}</span>{% endif %}
+            </div>
+          </div>
+          {% for sec in card.sections %}
+          <div class="dtasksec">{{ sec.name | capitalize }}</div>
+          {% for t in sec.tasks %}
+          <button class="dtask{% if t.done %} tdone{% endif %}" data-task="{{ t.id }}"
+                  style="--kc: {{ card.kid['color'] }}; background: {{ card.kid['color'] }}{{ ta }}">
+            {% if t.emoji %}<span class="dtaskemoji">{{ t.emoji }}</span>{% endif %}
+            <span class="dtaskbody">
+              <span class="dtasklabel">{{ t.label }}</span>
+              <span class="dtasksub">{% if t.time %}{{ t.time | fmt_time }} · {% endif %}⭐ {{ t.points }}</span>
+            </span>
+            <span class="dtcheck">✓</span>
+          </button>
+          {% endfor %}
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="tnothing">No tasks yet — set them up in Settings → Tasks &amp; rewards.</div>
+      {% endif %}
     </section>
 
     <!-- ============================= CUSTODY ============================= -->
@@ -362,11 +401,33 @@
 
   // --- Tabbed views: choice persists across the auto-refresh via the URL
   // (and localStorage as a fallback for a fresh load). ---
+  const LEGACY_CAL = { today: 1, week: 1, month: 1 };
   function currentView() {
-    const fromUrl = new URLSearchParams(location.search).get("view");
-    if (fromUrl) return fromUrl;
-    try { return localStorage.getItem("displayView") || "today"; }
-    catch (e) { return "today"; }
+    let v = new URLSearchParams(location.search).get("view");
+    if (!v) { try { v = localStorage.getItem("displayView"); } catch (e) {} }
+    if (!v) return "calendar";
+    return LEGACY_CAL[v] ? "calendar" : v;   // old ?view=week links
+  }
+  function currentCal() {
+    let c = new URLSearchParams(location.search).get("cal");
+    if (!c) {
+      const v = new URLSearchParams(location.search).get("view");
+      if (v && LEGACY_CAL[v]) c = v;
+    }
+    if (!c) { try { c = localStorage.getItem("displayCal"); } catch (e) {} }
+    return LEGACY_CAL[c] ? c : "today";
+  }
+  function setCal(cal) {
+    document.querySelectorAll(".dcalsub").forEach((s) => {
+      s.classList.toggle("active", s.id === "cal-" + cal);
+    });
+    document.querySelectorAll(".dsegbtn").forEach((b) => {
+      b.classList.toggle("active", b.dataset.cal === cal);
+    });
+    const url = new URL(location.href);
+    url.searchParams.set("cal", cal);
+    history.replaceState(null, "", url);
+    try { localStorage.setItem("displayCal", cal); } catch (e) {}
   }
   function setView(view) {
     document.querySelectorAll(".dview").forEach((s) => {
@@ -383,7 +444,29 @@
   document.querySelectorAll(".dtab[data-view]").forEach((t) => {
     t.addEventListener("click", () => setView(t.dataset.view));
   });
+  document.querySelectorAll(".dsegbtn").forEach((b) => {
+    b.addEventListener("click", () => setCal(b.dataset.cal));
+  });
   setView(currentView());
+  setCal(currentCal());
+
+  // --- Tasks: tap a chip to check it off; stars update in place. ---
+  const displayToken = new URLSearchParams(location.search).get("token") || "";
+  document.querySelectorAll(".dtask").forEach((el) => {
+    el.addEventListener("click", async () => {
+      const body = new URLSearchParams({ task_id: el.dataset.task, token: displayToken });
+      let resp;
+      try { resp = await fetch("/display/tasks/toggle", { method: "POST", body }); }
+      catch (e) { return; }
+      if (!resp.ok) return;
+      const data = await resp.json();
+      el.classList.toggle("tdone", data.done);
+      const stars = document.querySelector('[data-kid-stars="' + data.kid_id + '"]');
+      if (stars) stars.textContent = data.stars_week;
+      const doneEl = document.querySelector('[data-kid-done="' + data.kid_id + '"]');
+      if (doneEl) doneEl.textContent = parseInt(doneEl.textContent, 10) + (data.done ? 1 : -1);
+    });
+  });
 
   // --- Quick-add modal ---
   const addModal = document.getElementById("addmodal");
@@ -404,7 +487,7 @@
     const hhmm = String(now.getHours()).padStart(2, "0") + ":" +
                  String(now.getMinutes()).padStart(2, "0");
     let nextTagged = false;
-    document.querySelectorAll("#view-today .tevent").forEach((ev) => {
+    document.querySelectorAll("#cal-today .tevent").forEach((ev) => {
       const end = ev.dataset.end || ev.dataset.start;
       const past = end < hhmm;
       ev.classList.toggle("tpast", past);

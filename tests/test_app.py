@@ -447,18 +447,19 @@ def test_display_has_tabbed_views(env, client):
     conn = db.connect()
     token = db.get_setting(conn, "display_token")
     display = TestClient(env).get(f"/display?token={token}").text
-    assert 'data-view="today"' in display
-    assert 'data-view="week"' in display
+    assert 'data-view="calendar"' in display
+    assert 'data-view="tasks"' in display
     assert 'data-view="custody"' in display
-    assert 'id="view-today"' in display
-    assert 'id="view-week"' in display
+    assert 'data-cal="today"' in display and 'data-cal="month"' in display
+    assert 'id="cal-today"' in display
+    assert 'id="cal-week"' in display
     assert 'id="view-custody"' in display
     assert "Tomorrow" in display
     # Custody presentation lives only in its own tab: the who-cards appear
     # after the custody section starts, not inside the Today view.
     assert display.index('class="dwhocard"') > display.index('id="view-custody"')
     today_section = display[
-        display.index('id="view-today"'):display.index('id="view-week"')
+        display.index('id="cal-today"'):display.index('id="cal-week"')
     ]
     assert "dwhocard" not in today_section
     assert "takes over" not in today_section
@@ -641,7 +642,7 @@ def test_display_month_and_week_navigation(env, client):
     kiosk = TestClient(env)
 
     page = kiosk.get(f"/display?token={token}").text
-    assert "view-month" in page and "dmonth" in page
+    assert "cal-month" in page and "dmonth" in page
     assert date.today().strftime("%B %Y") in page
     assert "Far Future Field Trip" not in page
 
@@ -656,4 +657,54 @@ def test_display_month_and_week_navigation(env, client):
     assert "Back to now" in page
     # Garbage offsets and months fall back to now instead of erroring.
     assert kiosk.get(f"/display?token={token}&week=zzz&month=nope").status_code == 200
+    conn.close()
+
+
+def test_tasks_and_rewards(env, client):
+    do_setup(client)
+    conn = db.connect()
+    token = db.get_setting(conn, "display_token")
+    emma = conn.execute("SELECT id FROM kids WHERE name = 'Emma'").fetchone()["id"]
+    ava = conn.execute("SELECT id FROM kids WHERE name = 'Ava'").fetchone()["id"]
+
+    # Add tasks in Settings: an everyday one, and one only on weekdays.
+    client.post("/settings/tasks/add", data={
+        "kid_id": str(emma), "label": "Brush teeth", "emoji": "🪥",
+        "section": "morning", "points": "10",
+        "days": ["0", "1", "2", "3", "4", "5", "6"]})
+    client.post("/settings/tasks/add", data={
+        "kid_id": str(emma), "label": "Feed cat", "section": "chores",
+        "points": "5", "time": "17:00",
+        "days": ["0", "1", "2", "3", "4", "5", "6"]})
+    client.post("/settings/tasks/add", data={
+        "kid_id": str(ava), "label": "Make bed", "section": "morning",
+        "points": "10", "days": [str((date.today().weekday() + 1) % 7)]})
+    client.post("/settings/tasks/rewards", data={
+        f"goal_{emma}": "50", f"reward_{emma}": "Movie night pick"})
+
+    # The display shows only today's tasks: Emma's two, not Ava's
+    # tomorrow-only task.
+    page = TestClient(env).get(f"/display?token={token}").text
+    assert "Brush teeth" in page and "Feed cat" in page
+    assert "Make bed" not in page
+    assert "Movie night pick" in page and "/ 50" in page
+
+    # Tap to check off: stars accrue; tap again to undo.
+    task_id = conn.execute(
+        "SELECT id FROM tasks WHERE label = 'Brush teeth'").fetchone()["id"]
+    kiosk = TestClient(env)
+    r = kiosk.post("/display/tasks/toggle",
+                   data={"token": token, "task_id": str(task_id)})
+    assert r.json() == {"done": True, "kid_id": emma, "stars_week": 10}
+    r = kiosk.post("/display/tasks/toggle",
+                   data={"token": token, "task_id": str(task_id)})
+    assert r.json() == {"done": False, "kid_id": emma, "stars_week": 0}
+    # No token -> refused.
+    assert kiosk.post("/display/tasks/toggle",
+                      data={"task_id": str(task_id)}).status_code == 403
+
+    # Removing a task removes it from the display.
+    client.post(f"/settings/tasks/{task_id}/delete")
+    page = TestClient(env).get(f"/display?token={token}").text
+    assert "Brush teeth" not in page
     conn.close()
