@@ -325,6 +325,24 @@ def test_household_timezone_setting(env, client):
     conn.close()
 
 
+def test_pwa_install_surface(env, client):
+    do_setup(client)
+    m = client.get("/manifest.webmanifest")
+    assert m.status_code == 200
+    assert "application/manifest+json" in m.headers["content-type"]
+    assert '"display": "standalone"' in m.text
+    assert "Blended Testers" in m.text  # named after the household
+    sw = client.get("/sw.js")
+    assert sw.status_code == 200
+    assert "javascript" in sw.headers["content-type"]
+    for size in (180, 192, 512):
+        assert client.get(f"/static/icons/icon-{size}.png").status_code == 200
+    page = client.get("/").text
+    assert "manifest.webmanifest" in page
+    assert "serviceWorker" in page
+    assert "apple-touch-icon" in page
+
+
 def test_custody_switch_is_stated_as_an_event(env, client):
     do_setup(client)
     conn = db.connect()

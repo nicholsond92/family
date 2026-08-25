@@ -8,6 +8,7 @@ are per-adult so a shared URL can't leak private details.
 """
 
 import html
+import json
 import re
 import sqlite3
 import sys
@@ -396,6 +397,41 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health():
         return {"ok": True}
+
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        conn = get_conn()
+        try:
+            name = db.get_setting(conn, "household_name", "Family Hub") or "Family Hub"
+        finally:
+            conn.close()
+        return Response(
+            content=json.dumps({
+                "name": name,
+                "short_name": name if len(name) <= 12 else "Family Hub",
+                "description": "Custody, school, and activity schedules for the whole family.",
+                "start_url": "/",
+                "scope": "/",
+                "display": "standalone",
+                "background_color": "#fafafa",
+                "theme_color": "#18181b",
+                "icons": [
+                    {"src": "/static/icons/icon-192.png", "sizes": "192x192",
+                     "type": "image/png", "purpose": "any maskable"},
+                    {"src": "/static/icons/icon-512.png", "sizes": "512x512",
+                     "type": "image/png", "purpose": "any maskable"},
+                ],
+            }),
+            media_type="application/manifest+json",
+        )
+
+    @app.get("/sw.js")
+    def service_worker():
+        # Served from the root so the service worker can control "/".
+        return Response(
+            content=(BASE_DIR / "static" / "sw.js").read_text(),
+            media_type="application/javascript",
+        )
 
     # -------------------------------------------------------------------- setup
 
