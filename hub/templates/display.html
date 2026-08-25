@@ -37,6 +37,12 @@
     </button>
     <!-- Future modules (lists, chores, meals, photos…) plug in as more
          .dtab buttons + matching .dview sections. -->
+    <button class="dtab dadd" id="addbtn" title="Add an event">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>
+      </svg>
+      <span>Add</span>
+    </button>
   </nav>
 
   <div class="dmain">
@@ -249,6 +255,40 @@
   </div>
 </div>
 
+<div class="dmodal" id="addmodal" hidden>
+  <form class="dmodalcard" method="post" action="/display/events/new">
+    <input type="hidden" name="token" value="{{ display_token }}">
+    <h3 class="dmodaltitle">Add to the calendar</h3>
+    <input class="dfield" name="title" placeholder="What's happening?" maxlength="120" required autocomplete="off">
+    <div class="dfieldrow">
+      <input class="dfield" type="date" name="date" value="{{ today.isoformat() }}" required>
+      <input class="dfield" type="time" name="start_time">
+    </div>
+    <p class="dhint">Leave the time blank for an all-day event.</p>
+    <div class="dpickrow">
+      {% for k in kids %}
+      <label class="dpick">
+        <input type="checkbox" name="kid_ids" value="{{ k['id'] }}">
+        <span><i class="ddot" style="background: {{ k['color'] }}"></i>{{ k['name'] | first_name }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <p class="dhint">Added by</p>
+    <div class="dpickrow">
+      {% for p in parents_list %}
+      <label class="dpick">
+        <input type="radio" name="parent_id" value="{{ p['id'] }}" required>
+        <span><i class="ddot" style="background: {{ p['color'] }}"></i>{{ p['name'] | first_name }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <div class="dmodalbtns">
+      <button type="button" class="dbtn" id="addcancel">Cancel</button>
+      <button type="submit" class="dbtn dbtnprimary">Add it</button>
+    </div>
+  </form>
+</div>
+
 <script>
   function tick() {
     const now = new Date();
@@ -279,10 +319,23 @@
     history.replaceState(null, "", url);
     try { localStorage.setItem("displayView", view); } catch (e) {}
   }
-  document.querySelectorAll(".dtab").forEach((t) => {
+  document.querySelectorAll(".dtab[data-view]").forEach((t) => {
     t.addEventListener("click", () => setView(t.dataset.view));
   });
   setView(currentView());
+
+  // --- Quick-add modal ---
+  const addModal = document.getElementById("addmodal");
+  document.getElementById("addbtn").addEventListener("click", () => {
+    addModal.hidden = false;
+    addModal.querySelector("input[name=title]").focus();
+  });
+  document.getElementById("addcancel").addEventListener("click", () => {
+    addModal.hidden = true;
+  });
+  addModal.addEventListener("click", (e) => {
+    if (e.target === addModal) addModal.hidden = true;
+  });
 
   // --- Today timeline: dim what's over, tag what's next. ---
   function markProgress() {
@@ -302,8 +355,11 @@
   markProgress();
   setInterval(markProgress, 60000);
 
-  // Refresh the schedule every 5 minutes (URL keeps token and view).
-  setTimeout(() => location.reload(), 5 * 60 * 1000);
+  // Refresh the schedule every 5 minutes (URL keeps token and view) —
+  // but never yank the page out from under someone typing in the modal.
+  setInterval(() => {
+    if (addModal.hidden) location.reload();
+  }, 5 * 60 * 1000);
 </script>
 </body>
 </html>

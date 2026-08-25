@@ -7,7 +7,9 @@ co-parents and the creator; everyone else sees a Busy block. Calendar feeds
 are per-adult so a shared URL can't leak private details.
 """
 
+import csv
 import html
+import io
 import json
 import re
 import sqlite3
@@ -37,6 +39,15 @@ PALETTE = [
 ]
 CATEGORIES = ["school", "activity", "medical", "other"]
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+HHMM = re.compile(r"^(\d{1,2}):(\d{2})$")
+
+
+def _hhmm(value: str) -> str | None:
+    """Normalized 'HH:MM' or None."""
+    m = HHMM.match((value or "").strip())
+    if not m or not (0 <= int(m.group(1)) <= 23 and 0 <= int(m.group(2)) <= 59):
+        return None
+    return f"{int(m.group(1)):02d}:{m.group(2)}"
 
 # Open-Meteo WMO weather codes -> short display words.
 WEATHER_WORDS = {
@@ -1441,6 +1452,7 @@ def create_app() -> FastAPI:
                 request, "display.html", conn,
                 days=upcoming_days, today=today, banners=banners, kids=kids(conn),
                 kids_by_circle=circle_kid_rows(conn),
+                parents_list=parents(conn), display_token=token or "",
                 weather=fetch_weather(conn),
                 display_theme=db.get_setting(conn, "display_theme", "warm") or "warm",
                 lunches=lunches,
@@ -1725,6 +1737,135 @@ def create_app() -> FastAPI:
                 "<h1>Lunch menu test</h1>" + body +
                 "<p><a href='/settings'>Back to settings</a></p></div>"
             )
+        finally:
+            conn.close()
+
+    @app.post("/settings/events/import")
+    async def settings_events_import(request: Request):
+        """Bulk-add calendar events from pasted or uploaded CSV rows:
+        date, title[, start[, end]]. The date can be a range
+        (2026-12-21..2027-01-01) which expands to one all-day event per day.
+        Rows whose date+title already exist are skipped, so re-importing an
+        updated school calendar is safe."""
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            me = current_parent(request, conn)
+            form = await request.form()
+            text = form.get("rows") or ""
+            upload = form.get("file")
+            if upload is not None and hasattr(upload, "read"):
+                text += "\n" + (await upload.read()).decode("utf-8", "replace")
+            kid_ids = [int(k) for k in form.getlist("kid_ids")]
+            category = (form.get("category")
+                        if form.get("category") in CATEGORIES else "school")
+            now = datetime.now().isoformat(timespec="seconds")
+            imported = skipped = bad = 0
+            for row in csv.reader(io.StringIO(text)):
+                row = [c.strip() for c in row]
+                if (not row or not row[0] or row[0].startswith("#")
+                        or row[0].lower() == "date"):
+                    continue
+                if len(row) < 2 or not row[1]:
+                    bad += 1
+                    continue
+                dspec, title = row[0], row[1]
+                start = _hhmm(row[2]) if len(row) > 2 else None
+                end = _hhmm(row[3]) if len(row) > 3 else None
+                try:
+                    if ".." in dspec:
+                        a, b = dspec.split("..", 1)
+                        first = date.fromisoformat(a.strip())
+                        last = date.fromisoformat(b.strip())
+                    else:
+                        first = last = date.fromisoformat(dspec)
+                except ValueError:
+                    bad += 1
+                    continue
+                if last < first or (last - first).days > 120:
+                    bad += 1
+                    continue
+                d = first
+                while d <= last:
+                    exists = conn.execute(
+                        "SELECT id FROM events WHERE date = ? AND title = ?",
+                        (d.isoformat(), title),
+                    ).fetchone()
+                    if exists:
+                        skipped += 1
+                    else:
+                        event_id = db.insert_id(
+                            conn,
+                            "INSERT INTO events(title, category, date, "
+                            "start_time, end_time, all_day, location, notes, "
+                            "private, series_id, created_by, created_at) "
+                            "VALUES(?, ?, ?, ?, ?, ?, '', '', 0, NULL, ?, ?)",
+                            (title, category, d.isoformat(), start,
+                             end if start else None, 0 if start else 1,
+                             me["id"], now),
+                        )
+                        _set_event_kids(conn, event_id, kid_ids)
+                        imported += 1
+                    d += timedelta(days=1)
+            conn.commit()
+            return RedirectResponse(
+                f"/settings?imported={imported}&skipped={skipped}&bad={bad}",
+                status_code=303,
+            )
+        finally:
+            conn.close()
+
+    @app.post("/display/events/new")
+    async def display_event_create(request: Request):
+        """Quick-add from the wall display. The display token authorizes the
+        kiosk; the tapped adult becomes the event's creator. Kiosk events are
+        never private — the display is a shared surface."""
+        conn = get_conn()
+        try:
+            form = await request.form()
+            token = form.get("token") or request.query_params.get("token")
+            expected = db.get_setting(conn, "display_token")
+            authorized = (
+                (token and expected and token == expected)
+                or current_parent(request, conn) is not None
+            )
+            if not authorized:
+                return HTMLResponse("Missing or wrong display token.",
+                                    status_code=403)
+            title = (form.get("title") or "").strip()[:120]
+            try:
+                pid = int(form.get("parent_id") or 0)
+            except ValueError:
+                pid = 0
+            adult = conn.execute(
+                "SELECT id FROM parents WHERE id = ?", (pid,)
+            ).fetchone()
+            try:
+                d = date.fromisoformat(form.get("date") or "")
+            except ValueError:
+                d = hub_today(conn)
+            if title and adult:
+                start = _hhmm(form.get("start_time") or "")
+                event_id = db.insert_id(
+                    conn,
+                    "INSERT INTO events(title, category, date, start_time, "
+                    "end_time, all_day, location, notes, private, series_id, "
+                    "created_by, created_at) "
+                    "VALUES(?, 'other', ?, ?, NULL, ?, '', '', 0, NULL, ?, ?)",
+                    (title, d.isoformat(), start, 0 if start else 1,
+                     adult["id"], datetime.now().isoformat(timespec="seconds")),
+                )
+                _set_event_kids(
+                    conn, event_id,
+                    [int(k) for k in form.getlist("kid_ids")],
+                )
+                conn.commit()
+            dest = "/display?view=today"
+            if token:
+                dest += f"&token={token}"
+            return RedirectResponse(dest, status_code=303)
         finally:
             conn.close()
 

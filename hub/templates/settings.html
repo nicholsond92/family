@@ -67,6 +67,47 @@
 </div>
 
 <div class="card">
+  <h2>Import events</h2>
+  {% if request.query_params.get('imported') is not none %}
+  <p class="notice">Imported {{ request.query_params.get('imported') }} event(s),
+  skipped {{ request.query_params.get('skipped') }} already on the calendar{% if request.query_params.get('bad') not in (none, '0') %},
+  and couldn't read {{ request.query_params.get('bad') }} line(s){% endif %}.</p>
+  {% endif %}
+  <p class="muted small" style="margin:0 0 0.6rem">Bulk-add a school calendar or season
+  schedule — one event per line: <code>date, title, start, end</code>. Times are optional
+  (leave them off for an all-day event), and a date range like
+  <code>2026-12-21..2027-01-01</code> becomes one all-day event on each day. Re-importing
+  is safe: events already on the calendar (same date and title) are skipped.</p>
+  <form method="post" action="/settings/events/import" enctype="multipart/form-data" class="stack">
+    <textarea name="rows" rows="6" style="font-family:ui-monospace,monospace"
+      placeholder="2026-09-07, No School — Labor Day&#10;2026-09-10..2026-09-11, Picture Days&#10;2026-12-03, Christmas Program, 18:30"></textarea>
+    <label>Or upload a .csv file
+      <input type="file" name="file" accept=".csv,.txt,text/csv,text/plain">
+    </label>
+    <div class="grid2">
+      <label>Category
+        <select name="category">
+          {% for c in categories %}
+          <option value="{{ c }}" {% if c == 'school' %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <fieldset>
+        <legend>These events are for</legend>
+        <div class="kidchecks">
+          {% for k in kids %}
+          <label class="checkline">
+            <input type="checkbox" name="kid_ids" value="{{ k['id'] }}"> {{ k['name'] }}
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+    </div>
+    <div class="row"><button class="btn" type="submit">Import events</button></div>
+  </form>
+</div>
+
+<div class="card">
   <h2>Daily routines</h2>
   <p class="muted small" style="margin:0 0 0.6rem">Recurring reminders on the wall
   display's Today view that follow the custody schedule — e.g. "picks up the girls
