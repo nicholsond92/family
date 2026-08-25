@@ -275,8 +275,15 @@ def parse_fastdirect(page: str):
             continue
         day = int(dm.group(1))
         rest = lines[0][dm.end():].strip(" .:-–—")
-        items = [i for i in [rest] + lines[1:]
-                 if any(c.isalpha() for c in i) and len(i) < 80]
+        items = []
+        for item in [rest] + lines[1:]:
+            item = re.sub(r"\s+", " ", item).strip()
+            if not any(c.isalpha() for c in item) or len(item) >= 80:
+                continue
+            # "No School" placeholder days aren't lunches.
+            if item.lower().startswith("no school"):
+                continue
+            items.append(item)
         if items and day not in days:
             days[day] = items
     if len(days) < 3:
@@ -284,18 +291,22 @@ def parse_fastdirect(page: str):
     return days, year_month, list(dict.fromkeys(parser.links))
 
 
-def _fastdir_get(url: str, attempts: list) -> str | None:
+def _fastdir_get(url: str, attempts: list, post_data: dict | None = None):
     import requests
 
     try:
-        resp = requests.get(
-            url, timeout=8,
-            headers={"User-Agent": "FamilyHub/1.0 (+lunch menu display)"},
-        )
+        headers = {"User-Agent": "FamilyHub/1.0 (+lunch menu display)"}
+        if post_data is None:
+            resp = requests.get(url, timeout=8, headers=headers)
+        else:
+            resp = requests.post(url, data=post_data, timeout=8,
+                                 headers=headers)
         body = resp.text
         # Excerpt from the calendar table, not the boilerplate head.
         start = max(body.lower().find("<table"), 0)
-        attempts.append({"endpoint": url, "status": resp.status_code,
+        attempts.append({"endpoint": url + (f" POST {post_data}" if post_data
+                                            else ""),
+                         "status": resp.status_code,
                          "excerpt": body[start:start + 900]})
         return body if resp.status_code == 200 else None
     except Exception as exc:  # noqa: BLE001 — record and move on
@@ -305,38 +316,56 @@ def _fastdir_get(url: str, attempts: list) -> str | None:
 
 
 def fetch_fastdirect_month(url: str, year: int, month: int):
-    """(lunches_by_date, attempts). The page shows one month at a time; when
-    it isn't the requested one, follow the page's own Lunch.pl links (month
-    navigation) a few hops to find it."""
+    """(lunches_by_date, attempts). The page shows one month at a time; its
+    prev/next controls are forms submitting ReqYR/ReqMO back to Lunch.pl, so
+    other months are requested with those parameters (the CGI reads them from
+    GET or POST). Any Lunch.pl hrefs on the page are kept as a fallback."""
     attempts: list = []
+    found_links: list[str] = []
+
+    def try_page(page):
+        if page is None:
+            return None
+        days, year_month, links = parse_fastdirect(page)
+        found_links.extend(links)
+        # A page with no readable month header is trusted only for the
+        # month the site defaults to — the current one.
+        trusted = (year_month == (year, month) or (
+            year_month is None
+            and (year, month) == (date.today().year, date.today().month)))
+        if not days or not trusted:
+            return None
+        attempts[-1]["parsed_days"] = len(days)
+        out = {}
+        for day, items in days.items():
+            try:
+                out[date(year, month, day).isoformat()] = items
+            except ValueError:
+                continue
+        return out
+
+    out = try_page(_fastdir_get(url, attempts))
+    if out is not None:
+        return out, attempts
+    sep = "&" if "?" in url else "?"
+    out = try_page(_fastdir_get(f"{url}{sep}ReqYR={year}&ReqMO={month}",
+                                attempts))
+    if out is not None:
+        return out, attempts
+    out = try_page(_fastdir_get(url, attempts, post_data={
+        "ReqYR": str(year), "ReqMO": str(month), "PassActiveTest": "0"}))
+    if out is not None:
+        return out, attempts
     seen = {url}
-    page = _fastdir_get(url, attempts)
-    queue: list[str] = []
-    while True:
-        if page is not None:
-            days, year_month, links = parse_fastdirect(page)
-            # A page with no readable month header is trusted only for the
-            # month the site defaults to — the current one.
-            trusted = (year_month == (year, month) or (
-                year_month is None
-                and (year, month) == (date.today().year, date.today().month)))
-            if days and trusted:
-                attempts[-1]["parsed_days"] = len(days)
-                out = {}
-                for day, items in days.items():
-                    try:
-                        out[date(year, month, day).isoformat()] = items
-                    except ValueError:
-                        continue
-                return out, attempts
-            for link in links:
-                full = urljoin(url, link)
-                if full not in seen:
-                    seen.add(full)
-                    queue.append(full)
-        if not queue or len(seen) > 6:
-            return {}, attempts
-        page = _fastdir_get(queue.pop(0), attempts)
+    for link in found_links[:5]:
+        full = urljoin(url, link)
+        if full in seen:
+            continue
+        seen.add(full)
+        out = try_page(_fastdir_get(full, attempts))
+        if out is not None:
+            return out, attempts
+    return {}, attempts
 
 
 _API_ROUTE_RE = re.compile(
