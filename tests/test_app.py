@@ -728,15 +728,18 @@ def test_lunch_logo_upload_roundtrip(env, client):
         files={"lunch_logo1": ("shield.png", buf.getvalue(), "image/png")})
     assert r.status_code == 200
     from hub import lunch as lunchmod
+    db.invalidate_memo(conn)  # saves happen on the client's own connection
     menu = lunchmod.get_menus(conn)[0]
     assert menu["logo"].startswith("data:image/png;base64,")
     # Re-saving without a new file keeps the logo; the clear box removes it.
     client.post("/settings/lunch", data={
         "lunch_url1": menu["url"], "lunch_label1": "St. Paul"})
+    db.invalidate_memo(conn)
     assert lunchmod.get_menus(conn)[0].get("logo") == menu["logo"]
     client.post("/settings/lunch", data={
         "lunch_url1": menu["url"], "lunch_label1": "St. Paul",
         "lunch_logo_clear1": "on"})
+    db.invalidate_memo(conn)
     assert "logo" not in lunchmod.get_menus(conn)[0]
     conn.close()
 

@@ -11,6 +11,8 @@ precedence over the base cycle.
 import json
 from datetime import date, timedelta
 
+from . import db
+
 PATTERNS = {
     "alternating_weeks": "Alternating weeks (week on / week off)",
     "two_two_three": "2-2-3 rotation",
@@ -57,6 +59,7 @@ def save_schedule(conn, circle_id: int, pattern: str, anchor: date,
         (circle_id, pattern, anchor.isoformat(), json.dumps(cycle), handoff_time),
     )
     conn.commit()
+    db.invalidate_memo(conn)
 
 
 def _schedule_from_row(row):
@@ -77,11 +80,11 @@ def load_schedule(conn, circle_id: int):
 
 
 def load_schedules(conn) -> dict[int, dict]:
-    """All circles' schedules, keyed by circle id."""
-    return {
+    """All circles' schedules, keyed by circle id (memoized per request)."""
+    return db.conn_memo(conn, "schedules", lambda: {
         row["circle_id"]: _schedule_from_row(row)
-        for row in conn.execute("SELECT * FROM custody_schedule")
-    }
+        for row in conn.execute("SELECT * FROM custody_schedule").fetchall()
+    })
 
 
 def base_custodian_on(schedule, d: date) -> int:
@@ -90,12 +93,21 @@ def base_custodian_on(schedule, d: date) -> int:
     return cycle[offset]
 
 
+def _overrides(conn, circle_id: int) -> dict:
+    """All of one circle's overrides, loaded once per connection. The display
+    asks about dozens of dates per request; per-date queries were the single
+    biggest cause of slow page loads against a remote database."""
+    return db.conn_memo(conn, ("overrides", circle_id), lambda: {
+        r["date"]: r for r in conn.execute(
+            "SELECT * FROM custody_overrides WHERE circle_id = ?",
+            (circle_id,),
+        ).fetchall()
+    })
+
+
 def custodian_on(conn, circle_id: int, d: date, schedule=None) -> int | None:
     """Which parent has this circle's kids on date ``d`` (override-aware)."""
-    row = conn.execute(
-        "SELECT parent_id FROM custody_overrides WHERE circle_id = ? AND date = ?",
-        (circle_id, d.isoformat()),
-    ).fetchone()
+    row = _overrides(conn, circle_id).get(d.isoformat())
     if row:
         return row["parent_id"]
     if schedule is None:
@@ -106,10 +118,7 @@ def custodian_on(conn, circle_id: int, d: date, schedule=None) -> int | None:
 
 
 def override_on(conn, circle_id: int, d: date):
-    return conn.execute(
-        "SELECT * FROM custody_overrides WHERE circle_id = ? AND date = ?",
-        (circle_id, d.isoformat()),
-    ).fetchone()
+    return _overrides(conn, circle_id).get(d.isoformat())
 
 
 def custody_blocks(conn, circle_id: int, start: date, end: date):
@@ -182,3 +191,4 @@ def apply_swap_overrides(conn, swap) -> None:
             )
             d += timedelta(days=1)
     conn.commit()
+    db.invalidate_memo(conn)

@@ -60,6 +60,7 @@ def test_literal_percent_in_paramless_query(tmp_path):
     db.set_setting(conn, "keep", "y")
     conn.execute("DELETE FROM settings WHERE key LIKE 'lunch_cache:%'")
     conn.commit()
+    db.invalidate_memo(conn)  # direct SQL bypasses the settings memo
     assert db.get_setting(conn, "lunch_cache:1") is None
     assert db.get_setting(conn, "keep") == "y"
     conn.close()
