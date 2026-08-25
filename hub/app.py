@@ -269,14 +269,20 @@ def create_app() -> FastAPI:
     def get_conn():
         return db.connect()
 
+    # These tiny reference lists are read many times per request (the week
+    # and month grids each rebuild them); memoize per connection so a page
+    # costs a handful of round trips instead of dozens.
     def parents(conn):
-        return conn.execute("SELECT * FROM parents ORDER BY id").fetchall()
+        return db.conn_memo(conn, "parents", lambda: conn.execute(
+            "SELECT * FROM parents ORDER BY id").fetchall())
 
     def kids(conn):
-        return conn.execute("SELECT * FROM kids ORDER BY id").fetchall()
+        return db.conn_memo(conn, "kids", lambda: conn.execute(
+            "SELECT * FROM kids ORDER BY id").fetchall())
 
     def circles(conn):
-        return conn.execute("SELECT * FROM circles ORDER BY id").fetchall()
+        return db.conn_memo(conn, "circles", lambda: conn.execute(
+            "SELECT * FROM circles ORDER BY id").fetchall())
 
     def circle_members(conn) -> dict[int, list]:
         """circle id -> [parent rows] (the circle's two co-parents)."""
@@ -300,21 +306,27 @@ def create_app() -> FastAPI:
 
     def circle_kid_labels(conn) -> dict[int, str]:
         """circle id -> 'Emma & Ava' (that circle's kids, first names)."""
-        names: dict[int, list[str]] = {}
-        for row in conn.execute(
-            "SELECT circle_id, name FROM kids WHERE circle_id IS NOT NULL ORDER BY name"
-        ):
-            names.setdefault(row["circle_id"], []).append(row["name"].split()[0])
-        return {cid: " & ".join(ns) for cid, ns in names.items()}
+        def load():
+            names: dict[int, list[str]] = {}
+            for row in conn.execute(
+                "SELECT circle_id, name FROM kids WHERE circle_id IS NOT NULL "
+                "ORDER BY name"
+            ).fetchall():
+                names.setdefault(row["circle_id"], []).append(
+                    row["name"].split()[0])
+            return {cid: " & ".join(ns) for cid, ns in names.items()}
+        return db.conn_memo(conn, "circle_kid_labels", load)
 
     def circle_kid_rows(conn) -> dict[int, list]:
         """circle id -> kid rows, for color dots next to custody pills."""
-        out: dict[int, list] = {}
-        for row in conn.execute(
-            "SELECT * FROM kids WHERE circle_id IS NOT NULL ORDER BY name"
-        ):
-            out.setdefault(row["circle_id"], []).append(row)
-        return out
+        def load():
+            out: dict[int, list] = {}
+            for row in conn.execute(
+                "SELECT * FROM kids WHERE circle_id IS NOT NULL ORDER BY name"
+            ).fetchall():
+                out.setdefault(row["circle_id"], []).append(row)
+            return out
+        return db.conn_memo(conn, "circle_kid_rows", load)
 
     def is_admin(conn, parent_id: int) -> bool:
         """The household admin is the adult who created the hub. Stored as a
@@ -600,12 +612,24 @@ def create_app() -> FastAPI:
 
     def fetch_weather(conn):
         """Current conditions for the wall display via Open-Meteo (no API key).
-        Returns None unless a location is configured; never raises."""
+        Cached for 10 minutes so page loads don't wait on a live weather
+        call. Returns None unless a location is configured; never raises."""
         lat = db.get_setting(conn, "weather_lat", "")
         lon = db.get_setting(conn, "weather_lon", "")
         if not lat or not lon:
             return None
         unit = db.get_setting(conn, "weather_unit", "fahrenheit")
+        loc = f"{lat},{lon},{unit}"
+        cached = None
+        raw = db.get_setting(conn, "weather_cache")
+        if raw:
+            try:
+                cached = json.loads(raw)
+            except ValueError:
+                cached = None
+        if (cached and cached.get("for") == loc
+                and datetime.utcnow().timestamp() - cached.get("at", 0) < 600):
+            return cached.get("data")
         try:
             import requests
 
@@ -625,15 +649,20 @@ def create_app() -> FastAPI:
             # conditions) so kids see what the day will be like.
             day_codes = data.get("daily", {}).get("weather_code") or []
             code = day_codes[0] if day_codes else data["current"]["weather_code"]
-            return {
+            out = {
                 "temp": round(data["current"]["temperature_2m"]),
                 "hi": round(data["daily"]["temperature_2m_max"][0]),
                 "lo": round(data["daily"]["temperature_2m_min"][0]),
                 "cond": WEATHER_WORDS.get(code, ""),
                 "icon": WEATHER_ICONS.get(code, ""),
             }
+            db.set_setting(conn, "weather_cache", json.dumps(
+                {"at": datetime.utcnow().timestamp(), "for": loc, "data": out}))
+            return out
         except Exception:  # noqa: BLE001 — weather is decorative, never break the wall
-            return None
+            # A stale reading beats none while the weather service hiccups.
+            return cached.get("data") if cached and cached.get("for") == loc \
+                else None
 
     @app.get("/health")
     def health():
@@ -1860,6 +1889,7 @@ def create_app() -> FastAPI:
                     (security.new_token(16), f"{name} — schedule", kid_id, me["id"]),
                 )
                 conn.commit()
+                db.invalidate_memo(conn)
             return RedirectResponse("/settings", status_code=303)
         finally:
             conn.close()
@@ -1900,6 +1930,7 @@ def create_app() -> FastAPI:
             # Drop caches so the new source shows up immediately.
             conn.execute("DELETE FROM settings WHERE key LIKE 'lunch_cache:%'")
             conn.commit()
+            db.invalidate_memo(conn)
             return RedirectResponse("/settings", status_code=303)
         finally:
             conn.close()
@@ -2425,6 +2456,7 @@ def create_app() -> FastAPI:
             if HEX_COLOR.match(color):
                 conn.execute("UPDATE parents SET color = ? WHERE id = ?", (color, me["id"]))
                 conn.commit()
+                db.invalidate_memo(conn)
             return RedirectResponse("/settings", status_code=303)
         finally:
             conn.close()
@@ -2441,6 +2473,7 @@ def create_app() -> FastAPI:
             if HEX_COLOR.match(color):
                 conn.execute("UPDATE kids SET color = ? WHERE id = ?", (color, kid_id))
                 conn.commit()
+                db.invalidate_memo(conn)
             return RedirectResponse("/settings", status_code=303)
         finally:
             conn.close()
@@ -2454,6 +2487,7 @@ def create_app() -> FastAPI:
                 return redirect
             conn.execute("DELETE FROM kids WHERE id = ?", (kid_id,))
             conn.commit()
+            db.invalidate_memo(conn)
             return RedirectResponse("/settings", status_code=303)
         finally:
             conn.close()

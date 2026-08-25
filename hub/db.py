@@ -223,14 +223,40 @@ def database_url() -> str:
     return url
 
 
+class SQLiteConnection(sqlite3.Connection):
+    """Plain subclass so request-scoped caches can hang off the connection
+    (the C base type refuses arbitrary attributes)."""
+
+
+def conn_memo(conn, key, loader):
+    """Per-connection memo for small, hot lookups. Connections live for one
+    request, so this turns dozens of identical round trips (settings rows,
+    parent/kid lists, custody overrides) into one each — the difference
+    between a snappy page and a multi-second one against a remote pooler."""
+    cache = getattr(conn, "_memo", None)
+    if cache is None:
+        cache = {}
+        conn._memo = cache
+    if key not in cache:
+        cache[key] = loader()
+    return cache[key]
+
+
+def invalidate_memo(conn) -> None:
+    """Drop the connection's memo after writing to a memoized table."""
+    if getattr(conn, "_memo", None):
+        conn._memo = {}
+
+
 class PgConnection:
     """Thin wrapper giving a psycopg connection the sqlite3-ish interface the
     app uses: ``conn.execute(sql_with_question_marks, params)``."""
 
     is_postgres = True
 
-    def __init__(self, raw):
+    def __init__(self, raw, pool=None):
         self.raw = raw
+        self._pool = pool
 
     @staticmethod
     def _translate(sql: str) -> str:
@@ -249,7 +275,17 @@ class PgConnection:
         self.raw.commit()
 
     def close(self):
-        self.raw.close()
+        if self._pool is not None:
+            try:
+                self.raw.rollback()
+                self._pool.putconn(self.raw)
+            except Exception:  # noqa: BLE001 — broken conn: really close it
+                try:
+                    self.raw.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        else:
+            self.raw.close()
 
 
 def _ipv4_pinned_conninfo(url: str) -> str:
@@ -280,16 +316,52 @@ def _ipv4_pinned_conninfo(url: str) -> str:
         return url
 
 
+_pg_pools: dict = {}
+
+
 def _pg_connect(url: str) -> PgConnection:
     import psycopg
     from psycopg.rows import dict_row
 
     # prepare_threshold=None keeps psycopg compatible with transaction-mode
     # poolers (Supabase's pooler / pgbouncer), which serverless deploys use.
-    raw = psycopg.connect(
-        _ipv4_pinned_conninfo(url), row_factory=dict_row, prepare_threshold=None
-    )
-    return PgConnection(raw)
+    try:
+        from psycopg_pool import ConnectionPool
+    except ImportError:
+        raw = psycopg.connect(
+            _ipv4_pinned_conninfo(url), row_factory=dict_row,
+            prepare_threshold=None,
+        )
+        return PgConnection(raw)
+
+    # Reuse warm connections across requests in the same process: a fresh
+    # TLS handshake to the pooler on every request costs real time.
+    pool = _pg_pools.get(url)
+    if pool is None:
+        def _configure(c):
+            c.row_factory = dict_row
+            c.prepare_threshold = None
+
+        pool = ConnectionPool(
+            _ipv4_pinned_conninfo(url), min_size=0, max_size=5,
+            open=True, configure=_configure,
+            check=ConnectionPool.check_connection,
+        )
+        _pg_pools[url] = pool
+    try:
+        raw = pool.getconn(timeout=5)
+    except Exception:  # noqa: BLE001 — pool timeout hides the real error
+        # Connect directly so the genuine libpq failure (bad host, wrong
+        # password, IPv6-only address...) surfaces for the diagnostic page
+        # instead of a generic pool timeout.
+        raw = psycopg.connect(
+            _ipv4_pinned_conninfo(url), row_factory=dict_row,
+            prepare_threshold=None,
+        )
+        return PgConnection(raw)
+    raw.row_factory = dict_row
+    raw.prepare_threshold = None
+    return PgConnection(raw, pool=pool)
 
 
 _initialized_targets: set[str] = set()
@@ -307,7 +379,7 @@ def connect(path: str | None = None):
         target = url
     else:
         target = path or db_path()
-        conn = sqlite3.connect(target)
+        conn = sqlite3.connect(target, factory=SQLiteConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
     if target not in _initialized_targets:
@@ -383,9 +455,15 @@ def insert_id(conn, sql: str, params=()) -> int:
     return conn.execute(sql, params).lastrowid
 
 
+def _all_settings(conn) -> dict:
+    return conn_memo(conn, "settings", lambda: {
+        r["key"]: r["value"]
+        for r in conn.execute("SELECT key, value FROM settings").fetchall()
+    })
+
+
 def get_setting(conn, key: str, default: str | None = None) -> str | None:
-    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
-    return row["value"] if row else default
+    return _all_settings(conn).get(key, default)
 
 
 def set_setting(conn, key: str, value: str) -> None:
@@ -395,3 +473,6 @@ def set_setting(conn, key: str, value: str) -> None:
         (key, value),
     )
     conn.commit()
+    memo = getattr(conn, "_memo", None)
+    if memo is not None and "settings" in memo:
+        memo["settings"][key] = value
