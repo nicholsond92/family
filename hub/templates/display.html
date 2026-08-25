@@ -11,99 +11,235 @@
 </head>
 <body class="displaybody{% if display_theme == 'dark' %} theme-dark{% endif %}">
 {% set ta = '38' if display_theme == 'dark' else '1c' %}
-  <header class="dheader">
-    <div>
-      <div class="dhousehold">{{ household }}</div>
-      <div class="ddate">{{ today.strftime("%A, %B %-d") }}</div>
-    </div>
-    <div class="dheadright">
-      {% if weather %}
-      <div class="dweather">
-        <div class="dtemp">{{ weather.temp }}°</div>
-        <div class="dwmeta">
-          {% if weather.cond %}<span>{{ weather.cond }}</span>{% endif %}
-          <span>H {{ weather.hi }}° · L {{ weather.lo }}°</span>
-        </div>
-      </div>
-      {% endif %}
-      <div class="dclock" id="clock">--:--</div>
-    </div>
-  </header>
+{% set today_day = days[0] if days else None %}
+{% set tomorrow_day = days[1] if days | length > 1 else None %}
 
-  <div class="dbanners">
-    {% for b in banners %}
-    <div class="dcustody" style="--pcolor: {{ b.custodian['color'] }}; background: {{ b.custodian['color'] }}{{ ta }}">
-      <span class="dcdot" style="background: {{ b.custodian['color'] }}"></span>
-      <strong>{{ b.label }}</strong>&nbsp;{{ 'are' if '&' in b.label else 'is' }} with
-      <strong>&nbsp;{{ b.custodian['name'] | first_name }}</strong>
-      {% if b.next_custodian %}&nbsp;· switching to {{ b.next_custodian['name'] | first_name }}
-      {{ b.switch_text }} at {{ b.handoff | fmt_time }}{% endif %}
-    </div>
-    {% endfor %}
-  </div>
+<div class="dshell">
+  <nav class="drail">
+    <button class="dtab" data-view="today" title="Today">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 9h18M8 3v4M16 3v4"/>
+        <circle cx="12" cy="15" r="2.2" fill="currentColor" stroke="none"/>
+      </svg>
+      <span>Today</span>
+    </button>
+    <button class="dtab" data-view="week" title="Week">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 9h18M8 3v4M16 3v4M9 13h.01M13 13h.01M17 13h.01M9 17h.01M13 17h.01"/>
+      </svg>
+      <span>Week</span>
+    </button>
+    <!-- Future modules (lists, chores, meals, photos…) plug in as more
+         .dtab buttons + matching .dview sections. -->
+  </nav>
 
-  <div class="dweek">
-    {% for day in days %}
-    <div class="dday {% if day.is_today %}dtoday{% endif %}">
-      <div class="ddayhead">
-        <span class="ddayname">{{ "Today" if day.is_today else day.date.strftime("%a") }}</span>
-        <span class="ddaynum">{{ day.date.strftime("%-d") }}</span>
+  <div class="dmain">
+    <header class="dheader">
+      <div>
+        <div class="dhousehold">{{ household }}</div>
+        <div class="ddate">{{ today.strftime("%A, %B %-d") }}</div>
       </div>
-      {% for c in day.custody %}
-      {% if c.custodian %}
-      <div class="ddaycustody" style="background: {{ c.custodian['color'] }}{{ ta }}">
-        <span class="dkiddots">
-          {% for k in kids_by_circle.get(c.circle_id, []) %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}
-        </span>
-        {{ c.custodian['name'] | first_name }}{% if c.has_override %} ⇄{% endif %}
-      </div>
-      {% endif %}
-      {% endfor %}
-      {% for l in lunches.get(day.iso, []) %}
-      <div class="dlunch" title="School lunch">
-        <span class="dlunchtag">Lunch{% if l.label %} · {{ l.label }}{% endif %}</span>
-        <span class="dlunchtext">{{ l.text }}</span>
-      </div>
-      {% endfor %}
-      <div class="ddayevents">
-        {% for ev in day.events %}
-        {% set tint = ev.kids[0]['color'] if ev.kids else '#a8a29e' %}
-        <div class="devent" style="background: {{ tint }}{{ ta }}">
-          <div class="devtime">{% if ev.all_day %}All day{% else %}{{ ev.start_time | fmt_time }}{% endif %}</div>
-          <div class="devtitle">{% if ev.visible %}{{ ev.title }}{% else %}Busy{% endif %}</div>
-          {% if ev.kids %}
-          <div class="devkids">
-            {% for k in ev.kids %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}
+      <div class="dheadright">
+        {% if weather %}
+        <div class="dweather">
+          <div class="dtemp">{{ weather.temp }}°</div>
+          <div class="dwmeta">
+            {% if weather.cond %}<span>{{ weather.cond }}</span>{% endif %}
+            <span>H {{ weather.hi }}° · L {{ weather.lo }}°</span>
           </div>
-          {% endif %}
         </div>
-        {% else %}
-        <div class="dnothing">No plans</div>
+        {% endif %}
+        <div class="dclock" id="clock">--:--</div>
+      </div>
+    </header>
+
+    <div class="dbanners">
+      {% for b in banners %}
+      <div class="dcustody" style="--pcolor: {{ b.custodian['color'] }}; background: {{ b.custodian['color'] }}{{ ta }}">
+        <span class="dcdot" style="background: {{ b.custodian['color'] }}"></span>
+        <strong>{{ b.label }}</strong>&nbsp;{{ 'are' if '&' in b.label else 'is' }} with
+        <strong>&nbsp;{{ b.custodian['name'] | first_name }}</strong>
+        {% if b.next_custodian %}&nbsp;· switching to {{ b.next_custodian['name'] | first_name }}
+        {{ b.switch_text }} at {{ b.handoff | fmt_time }}{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- ============================== TODAY ============================== -->
+    <section class="dview" id="view-today">
+      {% if today_day %}
+      {% for l in lunches.get(today_day.iso, []) %}
+      <div class="tlunch">
+        <span class="dlunchtag">Lunch{% if l.label %} · {{ l.label }}{% endif %}</span>
+        <span class="tlunchtext">{{ l.text }}</span>
+      </div>
+      {% endfor %}
+
+      {% set allday = today_day.events | selectattr("all_day") | list %}
+      {% set timed = today_day.events | rejectattr("all_day") | list %}
+      {% if allday %}
+      <div class="tallday">
+        {% for ev in allday %}
+        {% set tint = ev.kids[0]['color'] if ev.kids else '#a8a29e' %}
+        <span class="talldaychip" style="background: {{ tint }}{{ ta }}">
+          {% for k in ev.kids %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}
+          {% if ev.visible %}{{ ev.title }}{% else %}Busy{% endif %}
+        </span>
         {% endfor %}
       </div>
-    </div>
-    {% endfor %}
+      {% endif %}
+
+      <div class="ttimeline">
+        {% for ev in timed %}
+        {% set tint = ev.kids[0]['color'] if ev.kids else '#a8a29e' %}
+        <div class="tevent" data-start="{{ ev.start_time }}" data-end="{{ ev.end_time or ev.start_time }}">
+          <div class="ttime">
+            <span class="tstart">{{ ev.start_time | fmt_time }}</span>
+            {% if ev.end_time %}<span class="tend">{{ ev.end_time | fmt_time }}</span>{% endif %}
+          </div>
+          <div class="tcard" style="background: {{ tint }}{{ ta }}">
+            <div class="ttitle">{% if ev.visible %}{{ ev.title }}{% else %}Busy{% endif %}
+              <span class="tnext">Up next</span></div>
+            {% if ev.visible and ev.location %}<div class="tloc">{{ ev.location }}</div>{% endif %}
+            {% if ev.kids %}
+            <div class="tkids">
+              {% for k in ev.kids %}<span class="tkid" style="background: {{ k['color'] }}{{ ta }}"><span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}</span>{% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+        {% if not timed and not allday %}
+        <div class="tnothing">Nothing scheduled today</div>
+        {% endif %}
+      </div>
+
+      {% if tomorrow_day %}
+      <div class="ttomorrow">
+        <span class="ttmlabel">Tomorrow</span>
+        {% for c in tomorrow_day.custody %}{% if c.custodian %}
+        <span class="ttmitem"><span class="ddot" style="background: {{ c.custodian['color'] }}"></span>{{ c.label }} with {{ c.custodian['name'] | first_name }}</span>
+        {% endif %}{% endfor %}
+        <span class="ttmitem">{{ tomorrow_day.events | length }} event{{ 's' if tomorrow_day.events | length != 1 }}</span>
+        {% for l in lunches.get(tomorrow_day.iso, [])[:1] %}
+        <span class="ttmitem">Lunch: {{ l.text.split(', ')[0] }}{% if ', ' in l.text %}…{% endif %}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endif %}
+    </section>
+
+    <!-- ============================== WEEK =============================== -->
+    <section class="dview" id="view-week">
+      <div class="dweek">
+        {% for day in days %}
+        <div class="dday {% if day.is_today %}dtoday{% endif %}">
+          <div class="ddayhead">
+            <span class="ddayname">{{ "Today" if day.is_today else day.date.strftime("%a") }}</span>
+            <span class="ddaynum">{{ day.date.strftime("%-d") }}</span>
+          </div>
+          {% for c in day.custody %}
+          {% if c.custodian %}
+          <div class="ddaycustody" style="background: {{ c.custodian['color'] }}{{ ta }}">
+            <span class="dkiddots">
+              {% for k in kids_by_circle.get(c.circle_id, []) %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}
+            </span>
+            {{ c.custodian['name'] | first_name }}{% if c.has_override %} ⇄{% endif %}
+          </div>
+          {% endif %}
+          {% endfor %}
+          {% for l in lunches.get(day.iso, []) %}
+          <div class="dlunch" title="School lunch">
+            <span class="dlunchtag">Lunch{% if l.label %} · {{ l.label }}{% endif %}</span>
+            <span class="dlunchtext">{{ l.text }}</span>
+          </div>
+          {% endfor %}
+          <div class="ddayevents">
+            {% for ev in day.events %}
+            {% set tint = ev.kids[0]['color'] if ev.kids else '#a8a29e' %}
+            <div class="devent" style="background: {{ tint }}{{ ta }}">
+              <div class="devtime">{% if ev.all_day %}All day{% else %}{{ ev.start_time | fmt_time }}{% endif %}</div>
+              <div class="devtitle">{% if ev.visible %}{{ ev.title }}{% else %}Busy{% endif %}</div>
+              {% if ev.kids %}
+              <div class="devkids">
+                {% for k in ev.kids %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}
+              </div>
+              {% endif %}
+            </div>
+            {% else %}
+            <div class="dnothing">No plans</div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <footer class="dfooter">
+      {% for k in kids %}
+      <span class="dlegend" style="background: {{ k['color'] }}{{ ta }}">
+        <span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}
+      </span>
+      {% endfor %}
+    </footer>
   </div>
+</div>
 
-  <footer class="dfooter">
-    {% for k in kids %}
-    <span class="dlegend" style="background: {{ k['color'] }}{{ ta }}">
-      <span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}
-    </span>
-    {% endfor %}
-  </footer>
+<script>
+  function tick() {
+    const now = new Date();
+    let h = now.getHours() % 12 || 12;
+    const m = String(now.getMinutes()).padStart(2, "0");
+    document.getElementById("clock").textContent = h + ":" + m;
+  }
+  tick();
+  setInterval(tick, 10000);
 
-  <script>
-    function tick() {
-      const now = new Date();
-      let h = now.getHours() % 12 || 12;
-      const m = String(now.getMinutes()).padStart(2, "0");
-      document.getElementById("clock").textContent = h + ":" + m;
-    }
-    tick();
-    setInterval(tick, 10000);
-    // Refresh the schedule every 5 minutes (keeps the token in the URL).
-    setTimeout(() => location.reload(), 5 * 60 * 1000);
-  </script>
+  // --- Tabbed views: choice persists across the auto-refresh via the URL
+  // (and localStorage as a fallback for a fresh load). ---
+  function currentView() {
+    const fromUrl = new URLSearchParams(location.search).get("view");
+    if (fromUrl) return fromUrl;
+    try { return localStorage.getItem("displayView") || "today"; }
+    catch (e) { return "today"; }
+  }
+  function setView(view) {
+    document.querySelectorAll(".dview").forEach((s) => {
+      s.classList.toggle("active", s.id === "view-" + view);
+    });
+    document.querySelectorAll(".dtab").forEach((t) => {
+      t.classList.toggle("active", t.dataset.view === view);
+    });
+    const url = new URL(location.href);
+    url.searchParams.set("view", view);
+    history.replaceState(null, "", url);
+    try { localStorage.setItem("displayView", view); } catch (e) {}
+  }
+  document.querySelectorAll(".dtab").forEach((t) => {
+    t.addEventListener("click", () => setView(t.dataset.view));
+  });
+  setView(currentView());
+
+  // --- Today timeline: dim what's over, tag what's next. ---
+  function markProgress() {
+    const now = new Date();
+    const hhmm = String(now.getHours()).padStart(2, "0") + ":" +
+                 String(now.getMinutes()).padStart(2, "0");
+    let nextTagged = false;
+    document.querySelectorAll("#view-today .tevent").forEach((ev) => {
+      const end = ev.dataset.end || ev.dataset.start;
+      const past = end < hhmm;
+      ev.classList.toggle("tpast", past);
+      const isNext = !past && !nextTagged;
+      ev.classList.toggle("tisnext", isNext);
+      if (isNext) nextTagged = true;
+    });
+  }
+  markProgress();
+  setInterval(markProgress, 60000);
+
+  // Refresh the schedule every 5 minutes (URL keeps token and view).
+  setTimeout(() => location.reload(), 5 * 60 * 1000);
+</script>
 </body>
 </html>
