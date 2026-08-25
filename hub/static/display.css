@@ -271,7 +271,11 @@ html, body { height: 100%; }
 }
 .devtime { font-size: 0.85vw; font-weight: 700; color: var(--muted); }
 .devtitle { font-size: 1.05vw; font-weight: 700; line-height: 1.3; }
-.devkids { margin-top: 0.25vw; display: flex; gap: 0.28vw; }
+.devkids { margin-top: 0.25vw; display: flex; gap: 0.28vw; flex-wrap: wrap; }
+.devkid { display: inline-flex; align-items: center; gap: 0.25vw; }
+/* Name labels only fit on the stacked phone cards; the wall's 7-column grid
+   keeps just the dots. */
+.devkidname { display: none; }
 .dnothing { color: #d4d4d8; font-size: 1vw; font-weight: 700; text-align: center; padding-top: 1.4vw; }
 
 /* ---- today view ---- */
@@ -893,7 +897,9 @@ a.dtab { text-decoration: none; }
   .devent { border-radius: 10px; padding: 6px 9px; }
   .devtime { font-size: 11px; }
   .devtitle { font-size: 13px; }
-  .devkids { gap: 3px; }
+  .devkids { gap: 4px 10px; margin-top: 3px; }
+  .devkid { gap: 4px; font-size: 11px; font-weight: 700; }
+  .devkidname { display: inline; }
   .dnothing { font-size: 12px; padding-top: 6px; }
 
   .dmonthhead { font-size: 9px; gap: 3px; }
@@ -932,6 +938,10 @@ a.dtab { text-decoration: none; }
   .dtasksub { font-size: 11px; }
   .dtcheck { width: 24px; height: 24px; min-width: 24px; min-height: 24px; font-size: 12px; }
 
+  /* On the scrolling phone layout, flex-basis:0 makes the active view only
+     one screen tall — its cards overflow past it and the footer legend gets
+     laid out mid-scroll, floating over the content. Size views by content. */
+  .dview, .dview.active { flex: 0 0 auto; }
   .dfooter { font-size: 11px; gap: 6px; flex-wrap: wrap; padding-top: 8px; }
   .dlegend { padding: 3px 9px; gap: 5px; }
   .dlegendsep { display: none; }
