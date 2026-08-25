@@ -1662,15 +1662,22 @@ def create_app() -> FastAPI:
                     lunches, attempts = lunch.fetch_month(menu["url"], y, m)
                     any_days = any_days or bool(lunches)
                     rows = "".join(
-                        "<li><code>{}</code> → <strong>{}</strong>{}"
+                        "<li><code>{}</code> → <strong>{}</strong>{}{}"
                         "<pre style='white-space:pre-wrap;background:#f4f4f5;"
                         "padding:8px;border-radius:6px'>{}</pre></li>".format(
                             html.escape(str(a["endpoint"])), html.escape(str(a["status"])),
                             f" · parsed {a['parsed_days']} days" if "parsed_days" in a else "",
+                            f" · {html.escape(a['note'])}" if a.get("note") else "",
                             html.escape(str(a["excerpt"])),
                         )
                         for a in attempts
                     )
+                    notes = list(dict.fromkeys(
+                        a["note"] for a in attempts if a.get("note")))
+                    returned = (
+                        "<p>What the site returned: {}.</p>".format(
+                            html.escape("; ".join(notes)))
+                        if notes else "")
                     sample = "".join(
                         "<li><strong>{}</strong>: {}</li>".format(
                             html.escape(d),
@@ -1684,9 +1691,7 @@ def create_app() -> FastAPI:
                         + (f"<p>Parsed {len(lunches)} days. Sample "
                            "(before display filtering):</p>"
                            f"<ul>{sample}</ul>" if lunches else
-                           "<p><strong>No days parsed.</strong> Raw responses "
-                           "below — share this page's content to get the parser "
-                           "adjusted.</p>")
+                           "<p><strong>No days parsed.</strong></p>" + returned)
                         + f"<details><summary>Fetch log</summary><ul>{rows}</ul>"
                         "</details>"
                     )
