@@ -270,6 +270,39 @@ def _day_items(value) -> list[str]:
     return []
 
 
+def _join_labels(labels: list[str]) -> str:
+    named = [l for l in labels if l]
+    if not named:
+        return ""
+    if len(named) == 1:
+        return named[0]
+    return ", ".join(named[:-1]) + " & " + named[-1]
+
+
+def _merge_identical(entries: list[dict], total_menus: int) -> list[dict]:
+    """Collapse menus serving the same lunch into one entry. Schools in the
+    same district often share a menu; the board shouldn't repeat itself.
+    Comparison ignores item order and case."""
+    merged: list[dict] = []
+    for entry in entries:
+        key = tuple(sorted(p.strip().lower() for p in entry["text"].split(",")))
+        match = next((m for m in merged if m["key"] == key), None)
+        if match is None:
+            merged.append({"key": key, "labels": [entry["label"]],
+                           "text": entry["text"]})
+        else:
+            match["labels"].append(entry["label"])
+    every_menu_matches = len(merged) == 1 and len(entries) == total_menus
+    return [
+        {
+            "label": ("All schools" if every_menu_matches
+                      else _join_labels(m["labels"])),
+            "text": m["text"],
+        }
+        for m in merged
+    ]
+
+
 def get_menus(conn) -> list[dict]:
     raw = db.get_setting(conn, "lunch_menus", "") or "[]"
     try:
@@ -330,4 +363,8 @@ def lunches_for(conn, dates: list[date]) -> dict[str, list[dict]]:
                 out.setdefault(iso, []).append(
                     {"label": label, "text": ", ".join(items)}
                 )
-    return out
+    return {
+        iso: (_merge_identical(entries, len(menus)) if len(entries) > 1
+              else entries)
+        for iso, entries in out.items()
+    }

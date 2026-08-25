@@ -1626,7 +1626,7 @@ def create_app() -> FastAPI:
                 return redirect
             form = await request.form()
             menus = []
-            for i in (1, 2):
+            for i in (1, 2, 3):
                 url = (form.get(f"lunch_url{i}") or "").strip()
                 label = (form.get(f"lunch_label{i}") or "").strip()
                 if url and lunch.parse_menu_url(url):

@@ -144,3 +144,49 @@ def test_lunches_for_reads_old_string_cache(tmp_path):
     out = lunch.lunches_for(conn, [date(2026, 8, 25)])
     assert out["2026-08-25"][0]["text"] == "Cheese Pizza"
     conn.close()
+
+
+def test_lunches_for_merges_schools_with_same_lunch(tmp_path, monkeypatch):
+    from hub import db
+    conn = db.connect(str(tmp_path / "t.db"))
+    lunch.set_menus(conn, [
+        {"url": "https://menus.healthepro.com/organizations/1606/menus/1", "label": "Washington"},
+        {"url": "https://menus.healthepro.com/organizations/1606/menus/2", "label": "Franklin"},
+        {"url": "https://menus.healthepro.com/organizations/1606/menus/3", "label": "Truman"},
+    ])
+
+    def fake_fetch(url, year, month):
+        if url.endswith("/3"):
+            return {
+                "2026-08-25": ["MINI CORN DOGS", "MILK"],
+                "2026-08-26": ["WALKING TACO"],
+            }, []
+        # Washington and Franklin share a menu; item order differs on the
+        # 26th but it's still the same lunch.
+        return {
+            "2026-08-25": ["MINI CORN DOGS", "MILK"],
+            "2026-08-26": (["CHEESE PIZZA", "CARROTS"] if url.endswith("/1")
+                           else ["CARROTS", "CHEESE PIZZA"]),
+        }, []
+
+    monkeypatch.setattr(lunch, "fetch_month", fake_fetch)
+    out = lunch.lunches_for(conn, [date(2026, 8, 25), date(2026, 8, 26)])
+
+    # All three schools serve the same lunch on the 25th -> one combined line.
+    assert out["2026-08-25"] == [
+        {"label": "All schools", "text": "Mini Corn Dogs"}
+    ]
+    # On the 26th only Washington & Franklin match; Truman stays separate.
+    assert out["2026-08-26"] == [
+        {"label": "Washington & Franklin", "text": "Cheese Pizza, Carrots"},
+        {"label": "Truman", "text": "Walking Taco"},
+    ]
+    conn.close()
+
+
+def test_join_labels():
+    assert lunch._join_labels([]) == ""
+    assert lunch._join_labels(["", ""]) == ""
+    assert lunch._join_labels(["Truman"]) == "Truman"
+    assert lunch._join_labels(["A", "B"]) == "A & B"
+    assert lunch._join_labels(["A", "", "B", "C"]) == "A, B & C"
