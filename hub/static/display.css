@@ -520,9 +520,11 @@ html, body { height: 100%; }
   justify-content: center;
   flex-shrink: 0;
 }
-.dtask.tdone { box-shadow: inset 0 0 0 2px var(--kc); }
-.dtask.tdone .dtasklabel { text-decoration: line-through; opacity: 0.75; }
-.dtask.tdone .dtcheck { background: var(--kc); box-shadow: none; color: #fff; }
+/* Done reads as a win (solid kid color, like the reference), not an error. */
+.dtask.tdone { background: var(--kc) !important; }
+.dtask.tdone .dtasklabel { text-decoration: line-through; color: #fff; }
+.dtask.tdone .dtasksub { color: rgba(255, 255, 255, 0.85); }
+.dtask.tdone .dtcheck { background: #fff; box-shadow: none; color: var(--kc); }
 
 /* ---- week/month navigation ---- */
 .dnav {
@@ -856,8 +858,8 @@ a.dtab { text-decoration: none; }
   .dtaskmeta { font-size: 11px; }
   .dstarpill { font-size: 12px; padding: 3px 10px; }
   .dtaskreward { font-size: 10px; }
-  .dtasksec { font-size: 10px; margin-top: 4px; }
-  .dtask { border-radius: 10px; padding: 8px 10px; gap: 8px; }
+  .dtasksec { font-size: 10px; margin-top: 8px; }
+  .dtask { border-radius: 12px; padding: 10px 12px; gap: 9px; }
   .dtaskemoji { font-size: 20px; }
   .dtasklabel { font-size: 14px; }
   .dtasksub { font-size: 11px; }

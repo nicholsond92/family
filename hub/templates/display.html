@@ -399,6 +399,13 @@
       <label class="dhint" style="flex:1; display:flex; flex-direction:column; gap:5px">Repeats weekly until <span style="font-weight:600">(leave blank for one-time)</span>
         <input class="dfield" type="date" name="repeat_until">
       </label>
+      <label class="dhint" style="flex:1; display:flex; flex-direction:column; gap:5px">Reminder
+        <select class="dfield" name="reminder_minutes">
+          {% for value, label in reminder_choices %}
+          <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
     </div>
     <div class="dpickrow">
       {% for k in kids %}
