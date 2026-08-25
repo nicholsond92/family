@@ -190,3 +190,80 @@ def test_join_labels():
     assert lunch._join_labels(["Truman"]) == "Truman"
     assert lunch._join_labels(["A", "B"]) == "A & B"
     assert lunch._join_labels(["A", "", "B", "C"]) == "A, B & C"
+
+
+FASTDIR_SEPT = """
+<html><head><title>FastDirect Communications</title></head><body>
+<center><font size=4><b>Hot Lunch Menu</b></font><br>
+<b>September, 2026</b>
+<a href="/~fastdir/cgi/0124/Lunch.pl?Month=8&Year=2026">&lt;&lt; Prev</a>
+<a href="/~fastdir/cgi/0124/Lunch.pl?Month=10&Year=2026">Next &gt;&gt;</a>
+<table border=1>
+<tr><th>Monday</th><th>Tuesday</th><th>Wednesday</th></tr>
+<tr>
+ <td><b>1</b><br>CHEESE PIZZA<br>Green Beans<br>Milk</td>
+ <td><b>2</b><br>Chicken Nuggets<br>Dinner Roll</td>
+ <td><b>3</b><br>Walking Taco</td>
+</tr>
+<tr><td>8<br>No School</td><td>&nbsp;</td><td>10<br>Hot Dog<br>Chips</td></tr>
+</table></center></body></html>
+"""
+
+FASTDIR_OCT = FASTDIR_SEPT.replace("September, 2026", "October, 2026").replace(
+    "CHEESE PIZZA", "PANCAKES &amp; SAUSAGE")
+
+
+def test_parse_fastdirect_calendar():
+    days, year_month, links = lunch.parse_fastdirect(FASTDIR_SEPT)
+    assert year_month == (2026, 9)
+    assert days[1] == ["CHEESE PIZZA", "Green Beans", "Milk"]
+    assert days[2] == ["Chicken Nuggets", "Dinner Roll"]
+    assert days[8] == ["No School"]
+    assert days[10] == ["Hot Dog", "Chips"]
+    # Weekday headers and empty cells aren't menu days.
+    assert set(days) == {1, 2, 3, 8, 10}
+    assert any("Month=10" in link for link in links)
+
+
+def test_parse_fastdirect_rejects_non_calendar():
+    days, _, _ = lunch.parse_fastdirect(
+        "<table><tr><td>1<br>Only</td><td>2<br>Two days</td></tr></table>")
+    assert days == {}
+
+
+def test_fetch_fastdirect_follows_month_links(monkeypatch):
+    pages = {
+        "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl": FASTDIR_SEPT,
+        "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl?Month=10&Year=2026":
+            FASTDIR_OCT,
+    }
+
+    def fake_get(url, attempts):
+        body = pages.get(url)
+        attempts.append({"endpoint": url, "status": 200 if body else 404,
+                         "excerpt": (body or "")[:100]})
+        return body
+
+    monkeypatch.setattr(lunch, "_fastdir_get", fake_get)
+
+    out, _ = lunch.fetch_month(
+        "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl", 2026, 9)
+    assert out["2026-09-01"] == ["CHEESE PIZZA", "Green Beans", "Milk"]
+
+    # October isn't the page shown — the fetcher walks the nav links.
+    out, _ = lunch.fetch_month(
+        "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl", 2026, 10)
+    assert out["2026-10-01"] == ["PANCAKES & SAUSAGE", "Green Beans", "Milk"]
+
+    # A month no link leads to comes back empty, not wrong.
+    out, _ = lunch.fetch_month(
+        "https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl", 2027, 2)
+    assert out == {}
+
+
+def test_valid_menu_url():
+    assert lunch.valid_menu_url(
+        "https://menus.healthepro.com/organizations/1606/menus/122977")
+    assert lunch.valid_menu_url("https://ssl.fastdir.com/~fastdir/cgi/0124/Lunch.pl")
+    assert not lunch.valid_menu_url("https://example.com/lunch")
+    assert not lunch.valid_menu_url("")

@@ -1626,10 +1626,10 @@ def create_app() -> FastAPI:
                 return redirect
             form = await request.form()
             menus = []
-            for i in (1, 2, 3):
+            for i in (1, 2, 3, 4):
                 url = (form.get(f"lunch_url{i}") or "").strip()
                 label = (form.get(f"lunch_label{i}") or "").strip()
-                if url and lunch.parse_menu_url(url):
+                if url and lunch.valid_menu_url(url):
                     menus.append({"url": url, "label": label})
             lunch.set_menus(conn, menus)
             if "lunch_ignore" in form:
@@ -1676,7 +1676,10 @@ def create_app() -> FastAPI:
                     for d, t in sorted(lunches.items())[:5]
                 )
                 discovery = ""
-                if not lunches:
+                # Route discovery only makes sense for Health-e Pro's SPA;
+                # FastDirect pages are server-rendered, the raw excerpt above
+                # is the whole story.
+                if not lunches and not lunch.is_fastdirect(menu["url"]):
                     routes, notes = lunch.discover_api_routes(menu["url"])
                     route_items = "".join(
                         f"<li><code>{html.escape(r)}</code></li>" for r in routes

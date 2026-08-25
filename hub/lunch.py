@@ -20,6 +20,8 @@ parser can be adjusted if Health-e Pro changes shapes.
 import json
 import re
 from datetime import date, datetime
+from html.parser import HTMLParser
+from urllib.parse import urljoin
 
 from . import db
 
@@ -41,6 +43,16 @@ def parse_menu_url(url: str):
     if not m or not m.group("org"):
         return None
     return m.group("org"), m.group("site"), m.group("menu")
+
+
+def is_fastdirect(url: str) -> bool:
+    """FastDirect (fastdir.com) school sites publish lunch menus as a
+    server-rendered CGI calendar page (…/cgi/NNNN/Lunch.pl), not a JSON API."""
+    return "fastdir.com" in (url or "").lower()
+
+
+def valid_menu_url(url: str) -> bool:
+    return bool(parse_menu_url(url)) or is_fastdirect(url)
 
 
 def candidate_endpoints(url: str, year: int, month: int) -> list[str]:
@@ -156,6 +168,9 @@ def fetch_month(url: str, year: int, month: int):
     """(lunches_by_date, attempts) — attempts logged for the debug page."""
     import requests
 
+    if is_fastdirect(url):
+        return fetch_fastdirect_month(url, year, month)
+
     attempts = []
     for endpoint in candidate_endpoints(url, year, month):
         try:
@@ -183,6 +198,145 @@ def fetch_month(url: str, year: int, month: int):
             attempts.append({"endpoint": endpoint, "status": "error",
                              "excerpt": repr(exc)[:300]})
     return {}, attempts
+
+
+# ---- FastDirect (fastdir.com) calendar pages ------------------------------
+
+_FD_MONTHS = {name: i for i, name in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july",
+     "august", "september", "october", "november", "december"], start=1)}
+_FD_MONTH_RE = re.compile(
+    r"\b(" + "|".join(m[:3] + r"(?:" + m[3:] + r")?" for m in _FD_MONTHS)
+    + r")\b\W{0,3}(\d{4})", re.I)
+_FD_DAY_RE = re.compile(r"^(\d{1,2})(?!\d)")
+
+
+class _FastDirParser(HTMLParser):
+    """Collects table-cell texts (with <br>/<p>/<div> as line breaks), the
+    page's plain text, and links back to the Lunch.pl script (month nav)."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.cells: list[str] = []
+        self.text: list[str] = []
+        self.links: list[str] = []
+        self._cell: list[str] | None = None
+
+    def _close_cell(self):
+        if self._cell is not None:
+            self.cells.append("".join(self._cell))
+            self._cell = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("td", "th"):
+            self._close_cell()
+            self._cell = []
+        elif tag in ("br", "p", "div", "li", "tr") and self._cell is not None:
+            self._cell.append("\n")
+        elif tag == "a":
+            href = next((v for k, v in attrs if k == "href"), "") or ""
+            if "lunch" in href.lower():
+                self.links.append(href)
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th", "tr", "table"):
+            self._close_cell()
+        elif tag in ("p", "div", "li") and self._cell is not None:
+            self._cell.append("\n")
+
+    def handle_data(self, data):
+        self.text.append(data)
+        if self._cell is not None:
+            self._cell.append(data)
+
+
+def parse_fastdirect(page: str):
+    """(days, (year, month) or None, month_nav_links) from a FastDirect
+    lunch calendar page. days is {day_of_month: [item, ...]} — a cell counts
+    as a menu day when its text starts with a day number followed by lines
+    of item text. Fewer than 3 such cells means this wasn't a calendar."""
+    parser = _FastDirParser()
+    parser.feed(page)
+    parser._close_cell()
+    m = _FD_MONTH_RE.search(" ".join(parser.text))
+    year_month = None
+    if m:
+        for name, num in _FD_MONTHS.items():
+            if name.startswith(m.group(1).lower()):
+                year_month = (int(m.group(2)), num)
+                break
+    days: dict[int, list[str]] = {}
+    for cell in parser.cells:
+        lines = [ln.strip() for ln in cell.split("\n") if ln.strip()]
+        if not lines:
+            continue
+        dm = _FD_DAY_RE.match(lines[0])
+        if not dm or not 1 <= int(dm.group(1)) <= 31:
+            continue
+        day = int(dm.group(1))
+        rest = lines[0][dm.end():].strip(" .:-–—")
+        items = [i for i in [rest] + lines[1:]
+                 if any(c.isalpha() for c in i) and len(i) < 80]
+        if items and day not in days:
+            days[day] = items
+    if len(days) < 3:
+        days = {}
+    return days, year_month, list(dict.fromkeys(parser.links))
+
+
+def _fastdir_get(url: str, attempts: list) -> str | None:
+    import requests
+
+    try:
+        resp = requests.get(
+            url, timeout=8,
+            headers={"User-Agent": "FamilyHub/1.0 (+lunch menu display)"},
+        )
+        body = resp.text
+        # Excerpt from the calendar table, not the boilerplate head.
+        start = max(body.lower().find("<table"), 0)
+        attempts.append({"endpoint": url, "status": resp.status_code,
+                         "excerpt": body[start:start + 900]})
+        return body if resp.status_code == 200 else None
+    except Exception as exc:  # noqa: BLE001 — record and move on
+        attempts.append({"endpoint": url, "status": "error",
+                         "excerpt": repr(exc)[:300]})
+        return None
+
+
+def fetch_fastdirect_month(url: str, year: int, month: int):
+    """(lunches_by_date, attempts). The page shows one month at a time; when
+    it isn't the requested one, follow the page's own Lunch.pl links (month
+    navigation) a few hops to find it."""
+    attempts: list = []
+    seen = {url}
+    page = _fastdir_get(url, attempts)
+    queue: list[str] = []
+    while True:
+        if page is not None:
+            days, year_month, links = parse_fastdirect(page)
+            # A page with no readable month header is trusted only for the
+            # month the site defaults to — the current one.
+            trusted = (year_month == (year, month) or (
+                year_month is None
+                and (year, month) == (date.today().year, date.today().month)))
+            if days and trusted:
+                attempts[-1]["parsed_days"] = len(days)
+                out = {}
+                for day, items in days.items():
+                    try:
+                        out[date(year, month, day).isoformat()] = items
+                    except ValueError:
+                        continue
+                return out, attempts
+            for link in links:
+                full = urljoin(url, link)
+                if full not in seen:
+                    seen.add(full)
+                    queue.append(full)
+        if not queue or len(seen) > 6:
+            return {}, attempts
+        page = _fastdir_get(queue.pop(0), attempts)
 
 
 _API_ROUTE_RE = re.compile(
