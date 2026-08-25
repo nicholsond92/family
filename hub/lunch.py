@@ -44,19 +44,26 @@ def parse_menu_url(url: str):
 
 
 def candidate_endpoints(url: str, year: int, month: int) -> list[str]:
+    """Month-data candidates first; the plain menu endpoint (which returns
+    only metadata, as observed live) last as a shape probe."""
     parsed = parse_menu_url(url)
     if not parsed:
         return []
     org, site, menu = parsed
+    if not menu:
+        return []
+    first = f"{year}-{month:02d}-01"
     hosts = ["https://menus.healthepro.com", "https://myschoolmenus.com"]
     out = []
     for host in hosts:
-        if menu:
-            out.append(f"{host}/api/organizations/{org}/menus/{menu}")
-            out.append(f"{host}/api/organizations/{org}/menus/{menu}?year={year}&month={month}")
-            if site:
-                out.append(f"{host}/api/organizations/{org}/sites/{site}/menus/{menu}")
-        out.append(f"{host}/api/organizations/{org}/menus")
+        base = f"{host}/api/organizations/{org}/menus/{menu}"
+        out.append(f"{base}/year/{year}/month/{month}/date_overwrites")
+        out.append(f"{base}/year/{year}/month/{month}")
+        out.append(f"{base}/months/{first}")
+        out.append(f"{base}/month/{first}")
+        out.append(f"{base}/calendar?year={year}&month={month}")
+        out.append(f"{base}?year={year}&month={month}")
+        out.append(base)
     return out
 
 
@@ -176,6 +183,53 @@ def fetch_month(url: str, year: int, month: int):
             attempts.append({"endpoint": endpoint, "status": "error",
                              "excerpt": repr(exc)[:300]})
     return {}, attempts
+
+
+_API_ROUTE_RE = re.compile(
+    r"[\"'`]((?:[A-Za-z0-9_\-/${}.:]*)?api/[A-Za-z0-9_\-/${}?&=.:]{3,160})[\"'`]"
+)
+_SCRIPT_SRC_RE = re.compile(r"src=[\"']([^\"']+\.js[^\"']*)[\"']")
+
+
+def extract_api_routes(text: str) -> list[str]:
+    """Distinct api/... route strings referenced by a JS bundle, filtered to
+    menu-related ones. Template literals keep their ${var} segments so the
+    real path shape is visible."""
+    found = {m for m in _API_ROUTE_RE.findall(text)}
+    interesting = sorted(
+        r for r in found
+        if any(k in r.lower() for k in ("menu", "organization", "site", "calendar"))
+    )
+    return interesting[:80]
+
+
+def discover_api_routes(url: str):
+    """Fetch the menu page and its JS bundles; report every API route the
+    site's own code references. Turns the live app into an API prober when
+    Health-e Pro changes their undocumented endpoints."""
+    import requests
+
+    notes: list[str] = []
+    routes: set[str] = set()
+    headers = {"User-Agent": "FamilyHub/1.0 (+lunch menu display)"}
+    try:
+        page = requests.get(url, timeout=8, headers=headers)
+        notes.append(f"page: {page.status_code}, {len(page.text)} bytes")
+        srcs = _SCRIPT_SRC_RE.findall(page.text)
+        origin = url.split("/organizations/")[0].rstrip("/")
+        for src in srcs[:6]:
+            full = src if src.startswith("http") else f"{origin}/{src.lstrip('/')}"
+            try:
+                js = requests.get(full, timeout=10, headers=headers)
+                notes.append(f"{full}: {js.status_code}, {len(js.text)} bytes")
+                if js.status_code == 200:
+                    routes.update(extract_api_routes(js.text))
+            except Exception as exc:  # noqa: BLE001
+                notes.append(f"{full}: {exc!r}")
+        routes.update(extract_api_routes(page.text))
+    except Exception as exc:  # noqa: BLE001
+        notes.append(repr(exc))
+    return sorted(routes)[:80], notes
 
 
 def get_menus(conn) -> list[dict]:

@@ -22,6 +22,26 @@ def test_candidate_endpoints_cover_both_hosts():
     assert any("menus.healthepro.com/api/organizations/99/menus/104901" in u for u in urls)
     assert any("myschoolmenus.com/api/organizations/99/menus/104901" in u for u in urls)
     assert any("year=2026&month=8" in u for u in urls)
+    # Month-path candidates come before the metadata-only base endpoint.
+    assert "year/2026/month/8" in urls[0] or "year/2026/month/8" in urls[1]
+    assert urls.index(
+        "https://menus.healthepro.com/api/organizations/99/menus/104901"
+    ) > urls.index(
+        "https://menus.healthepro.com/api/organizations/99/menus/104901/year/2026/month/8"
+    )
+
+
+def test_extract_api_routes_from_bundle():
+    bundle = """
+    const a = fetch(`api/organizations/${org}/menus/${menu}/year/${y}/month/${m}`);
+    const b = "api/organizations/"+o+"/menus";
+    const c = 'api/auth/login';
+    const d = `api/menu_month/${id}/calendar`;
+    """
+    routes = lunch.extract_api_routes(bundle)
+    assert "api/organizations/${org}/menus/${menu}/year/${y}/month/${m}" in routes
+    assert "api/menu_month/${id}/calendar" in routes
+    assert "api/auth/login" not in routes  # not menu-related
 
 
 def _sample_payload():

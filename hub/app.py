@@ -1560,13 +1560,28 @@ def create_app() -> FastAPI:
                     f"<li><strong>{html.escape(d)}</strong>: {html.escape(t)}</li>"
                     for d, t in sorted(lunches.items())[:5]
                 )
+                discovery = ""
+                if not lunches:
+                    routes, notes = lunch.discover_api_routes(menu["url"])
+                    route_items = "".join(
+                        f"<li><code>{html.escape(r)}</code></li>" for r in routes
+                    ) or "<li>none found</li>"
+                    note_items = "".join(
+                        f"<li>{html.escape(n)}</li>" for n in notes
+                    )
+                    discovery = (
+                        "<h3>API routes referenced by the site's own code</h3>"
+                        f"<ul>{route_items}</ul>"
+                        "<details><summary>Fetch log</summary>"
+                        f"<ul>{note_items}</ul></details>"
+                    )
                 sections.append(
                     f"<h2>{html.escape(menu.get('label') or menu['url'])}</h2>"
                     + (f"<p>Parsed {len(lunches)} days this month. Sample:</p>"
                        f"<ul>{sample}</ul>" if lunches else
                        "<p><strong>No days parsed.</strong> Raw responses below — "
                        "share this page's content to get the parser adjusted.</p>")
-                    + f"<ul>{rows}</ul>"
+                    + f"<ul>{rows}</ul>" + discovery
                 )
             body = "".join(sections) or "<p>No lunch menus configured yet.</p>"
             return HTMLResponse(
