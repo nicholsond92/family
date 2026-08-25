@@ -154,7 +154,7 @@
   {% if c.schedule %}
   <p>Current pattern: <strong>{{ patterns[c.schedule.pattern] }}</strong>,
     anchored to the week of {{ c.schedule.anchor_date.strftime("%B %-d, %Y") }},
-    handoff around {{ c.schedule.handoff_time }}.</p>
+    handoff around {{ c.schedule.handoff_time | fmt_time }}.</p>
   {% else %}
   <p class="muted">No custody schedule configured for this circle.</p>
   {% endif %}
