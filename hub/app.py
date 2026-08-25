@@ -1652,34 +1652,49 @@ def create_app() -> FastAPI:
             if redirect:
                 return redirect
             today = hub_today(conn)
+            next_first = (today.replace(day=1) + timedelta(days=32)).replace(day=1)
+            months = [(today.year, today.month), (next_first.year, next_first.month)]
             sections = []
             for menu in lunch.get_menus(conn):
-                lunches, attempts = lunch.fetch_month(
-                    menu["url"], today.year, today.month
-                )
-                rows = "".join(
-                    "<li><code>{}</code> → <strong>{}</strong>{}"
-                    "<pre style='white-space:pre-wrap;background:#f4f4f5;"
-                    "padding:8px;border-radius:6px'>{}</pre></li>".format(
-                        html.escape(str(a["endpoint"])), html.escape(str(a["status"])),
-                        f" · parsed {a['parsed_days']} days" if "parsed_days" in a else "",
-                        html.escape(str(a["excerpt"])),
+                month_parts = []
+                any_days = False
+                for (y, m) in months:
+                    lunches, attempts = lunch.fetch_month(menu["url"], y, m)
+                    any_days = any_days or bool(lunches)
+                    rows = "".join(
+                        "<li><code>{}</code> → <strong>{}</strong>{}"
+                        "<pre style='white-space:pre-wrap;background:#f4f4f5;"
+                        "padding:8px;border-radius:6px'>{}</pre></li>".format(
+                            html.escape(str(a["endpoint"])), html.escape(str(a["status"])),
+                            f" · parsed {a['parsed_days']} days" if "parsed_days" in a else "",
+                            html.escape(str(a["excerpt"])),
+                        )
+                        for a in attempts
                     )
-                    for a in attempts
-                )
-                sample = "".join(
-                    "<li><strong>{}</strong>: {}</li>".format(
-                        html.escape(d),
-                        html.escape(", ".join(lunch.prettify_item(i) for i in t)
-                                    if isinstance(t, list) else str(t)),
+                    sample = "".join(
+                        "<li><strong>{}</strong>: {}</li>".format(
+                            html.escape(d),
+                            html.escape(", ".join(lunch.prettify_item(i) for i in t)
+                                        if isinstance(t, list) else str(t)),
+                        )
+                        for d, t in sorted(lunches.items())[:5]
                     )
-                    for d, t in sorted(lunches.items())[:5]
-                )
+                    month_parts.append(
+                        f"<h3>{date(y, m, 1).strftime('%B %Y')}</h3>"
+                        + (f"<p>Parsed {len(lunches)} days. Sample "
+                           "(before display filtering):</p>"
+                           f"<ul>{sample}</ul>" if lunches else
+                           "<p><strong>No days parsed.</strong> Raw responses "
+                           "below — share this page's content to get the parser "
+                           "adjusted.</p>")
+                        + f"<details><summary>Fetch log</summary><ul>{rows}</ul>"
+                        "</details>"
+                    )
                 discovery = ""
                 # Route discovery only makes sense for Health-e Pro's SPA;
                 # FastDirect pages are server-rendered, the raw excerpt above
                 # is the whole story.
-                if not lunches and not lunch.is_fastdirect(menu["url"]):
+                if not any_days and not lunch.is_fastdirect(menu["url"]):
                     routes, notes = lunch.discover_api_routes(menu["url"])
                     route_items = "".join(
                         f"<li><code>{html.escape(r)}</code></li>" for r in routes
@@ -1695,11 +1710,9 @@ def create_app() -> FastAPI:
                     )
                 sections.append(
                     f"<h2>{html.escape(menu.get('label') or menu['url'])}</h2>"
-                    + (f"<p>Parsed {len(lunches)} days this month. Sample:</p>"
-                       f"<ul>{sample}</ul>" if lunches else
-                       "<p><strong>No days parsed.</strong> Raw responses below — "
-                       "share this page's content to get the parser adjusted.</p>")
-                    + f"<ul>{rows}</ul>" + discovery
+                    "<p class=small>Days listed as only “No School” are kept "
+                    "here but never shown as a lunch on the display.</p>"
+                    + "".join(month_parts) + discovery
                 )
             body = "".join(sections) or "<p>No lunch menus configured yet.</p>"
             return HTMLResponse(
