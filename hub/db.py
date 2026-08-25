@@ -149,10 +149,29 @@ CREATE TABLE IF NOT EXISTS feeds(
   kid_id INTEGER REFERENCES kids(id) ON DELETE CASCADE,
   owner_parent_id INTEGER REFERENCES parents(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS tasks(
+  id {ID},
+  kid_id INTEGER NOT NULL REFERENCES kids(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  emoji TEXT NOT NULL DEFAULT '',
+  section TEXT NOT NULL DEFAULT 'morning',
+  points INTEGER NOT NULL DEFAULT 10,
+  time TEXT,
+  days TEXT NOT NULL DEFAULT '0,1,2,3,4,5,6',
+  active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS task_checks(
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  PRIMARY KEY (task_id, date)
+);
 """
 
 # Dropped (children first) when migrating an empty pre-v2 database.
 _APP_TABLES = [
+    "task_checks", "tasks",
     "messages", "threads", "swaps", "custody_overrides", "custody_schedule",
     "event_kids", "events", "feeds", "kids", "circle_parents", "circles",
     "parents",

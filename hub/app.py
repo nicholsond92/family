@@ -21,7 +21,8 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
+                               Response)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -38,6 +39,7 @@ PALETTE = [
     "#3a86ff", "#457b9d", "#8d5bd4", "#d81b8c", "#64748b",
 ]
 CATEGORIES = ["school", "activity", "medical", "other"]
+TASK_SECTIONS = ["morning", "afternoon", "evening", "chores"]
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 HHMM = re.compile(r"^(\d{1,2}):(\d{2})$")
 
@@ -450,6 +452,67 @@ def create_app() -> FastAPI:
                 "location": "",
             })
         return out
+
+    def task_rewards(conn) -> dict:
+        try:
+            rewards = json.loads(db.get_setting(conn, "task_rewards", "") or "{}")
+            return rewards if isinstance(rewards, dict) else {}
+        except ValueError:
+            return {}
+
+    def week_star_totals(conn, today: date) -> dict[int, int]:
+        """Stars each kid has earned so far this week (Mon–Sun)."""
+        wstart = custody.monday_of(today)
+        totals: dict[int, int] = {}
+        for r in conn.execute(
+            "SELECT t.kid_id AS kid_id, SUM(t.points) AS stars "
+            "FROM task_checks tc JOIN tasks t ON t.id = tc.task_id "
+            "WHERE tc.date >= ? AND tc.date <= ? GROUP BY t.kid_id",
+            (wstart.isoformat(), (wstart + timedelta(days=6)).isoformat()),
+        ).fetchall():
+            totals[r["kid_id"]] = r["stars"] or 0
+        return totals
+
+    def tasks_context(conn, today: date) -> list[dict]:
+        """Per-kid task cards for the display: today's tasks by section,
+        which are already checked off, and stars earned this week toward
+        the kid's reward goal."""
+        rows = conn.execute(
+            "SELECT * FROM tasks WHERE active = 1 "
+            "ORDER BY time IS NULL, time, id"
+        ).fetchall()
+        if not rows:
+            return []
+        done_today = {r["task_id"] for r in conn.execute(
+            "SELECT task_id FROM task_checks WHERE date = ?",
+            (today.isoformat(),)).fetchall()}
+        stars = week_star_totals(conn, today)
+        rewards = task_rewards(conn)
+        weekday = str(today.weekday())
+        cards = []
+        for kid in kids(conn):
+            ktasks = [dict(t) for t in rows if t["kid_id"] == kid["id"]
+                      and weekday in (t["days"] or "").split(",")]
+            if not ktasks:
+                continue
+            for t in ktasks:
+                t["done"] = t["id"] in done_today
+            sections = [
+                {"name": name, "tasks": sec}
+                for name in TASK_SECTIONS
+                if (sec := [t for t in ktasks if t["section"] == name])
+            ]
+            conf = rewards.get(str(kid["id"]), {})
+            cards.append({
+                "kid": kid,
+                "sections": sections,
+                "done_count": sum(1 for t in ktasks if t["done"]),
+                "total": len(ktasks),
+                "stars_week": stars.get(kid["id"], 0),
+                "goal": conf.get("goal") or 0,
+                "reward": conf.get("reward") or "",
+            })
+        return cards
 
     def home_parent_ids(conn) -> set[int]:
         """Adults who live where the wall display hangs. Stored at setup
@@ -1498,6 +1561,7 @@ def create_app() -> FastAPI:
                 month_prev=(month_first - timedelta(days=1)).strftime("%Y-%m"),
                 month_next=(month_last + timedelta(days=1)).strftime("%Y-%m"),
                 month_is_current=(month_first == today.replace(day=1)),
+                tasks_cards=tasks_context(conn, today),
                 weather=fetch_weather(conn),
                 display_theme=db.get_setting(conn, "display_theme", "warm") or "warm",
                 lunches=lunches,
@@ -1555,6 +1619,13 @@ def create_app() -> FastAPI:
                 away_color=db.get_setting(conn, "display_away_color") or "#b1a99e",
                 home_ids=home_parent_ids(conn),
                 routines=get_routines(conn),
+                tasks_list=conn.execute(
+                    "SELECT t.*, k.name AS kid_name, k.color AS kid_color "
+                    "FROM tasks t JOIN kids k ON k.id = t.kid_id "
+                    "WHERE t.active = 1 ORDER BY k.name, t.section, t.id"
+                ).fetchall(),
+                task_rewards=task_rewards(conn),
+                task_sections=TASK_SECTIONS,
                 lunch_menus=lunch.get_menus(conn),
                 lunch_ignore=(
                     db.get_setting(conn, "lunch_ignore")
@@ -1911,6 +1982,127 @@ def create_app() -> FastAPI:
             if token:
                 dest += f"&token={token}"
             return RedirectResponse(dest, status_code=303)
+        finally:
+            conn.close()
+
+    @app.post("/display/tasks/toggle")
+    async def display_task_toggle(request: Request):
+        """Tap a task chip on the wall display to check it off (or back on).
+        Authorized by the display token, like the display itself."""
+        conn = get_conn()
+        try:
+            form = await request.form()
+            token = form.get("token") or request.query_params.get("token")
+            expected = db.get_setting(conn, "display_token")
+            authorized = (
+                (token and expected and token == expected)
+                or current_parent(request, conn) is not None
+            )
+            if not authorized:
+                return JSONResponse({"error": "unauthorized"}, status_code=403)
+            try:
+                task_id = int(form.get("task_id") or 0)
+            except ValueError:
+                task_id = 0
+            task = conn.execute(
+                "SELECT * FROM tasks WHERE id = ? AND active = 1", (task_id,)
+            ).fetchone()
+            if not task:
+                return JSONResponse({"error": "unknown task"}, status_code=404)
+            today = hub_today(conn)
+            iso = today.isoformat()
+            existing = conn.execute(
+                "SELECT task_id FROM task_checks WHERE task_id = ? AND date = ?",
+                (task_id, iso)).fetchone()
+            if existing:
+                conn.execute(
+                    "DELETE FROM task_checks WHERE task_id = ? AND date = ?",
+                    (task_id, iso))
+                done = False
+            else:
+                conn.execute(
+                    "INSERT INTO task_checks(task_id, date) VALUES(?, ?)",
+                    (task_id, iso))
+                done = True
+            conn.commit()
+            stars = week_star_totals(conn, today)
+            return JSONResponse({
+                "done": done,
+                "kid_id": task["kid_id"],
+                "stars_week": stars.get(task["kid_id"], 0),
+            })
+        finally:
+            conn.close()
+
+    @app.post("/settings/tasks/add")
+    async def settings_task_add(request: Request):
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            form = await request.form()
+            try:
+                kid_id = int(form.get("kid_id") or 0)
+            except ValueError:
+                kid_id = 0
+            kid = conn.execute(
+                "SELECT id FROM kids WHERE id = ?", (kid_id,)).fetchone()
+            label = (form.get("label") or "").strip()[:80]
+            if kid and label:
+                section = (form.get("section")
+                           if form.get("section") in TASK_SECTIONS else "morning")
+                try:
+                    points = max(0, min(1000, int(form.get("points") or 10)))
+                except ValueError:
+                    points = 10
+                days = sorted({d for d in form.getlist("days")
+                               if d in {"0", "1", "2", "3", "4", "5", "6"}})
+                conn.execute(
+                    "INSERT INTO tasks(kid_id, label, emoji, section, points, "
+                    "time, days, active) VALUES(?, ?, ?, ?, ?, ?, ?, 1)",
+                    (kid["id"], label, (form.get("emoji") or "").strip()[:8],
+                     section, points, _hhmm(form.get("time") or ""),
+                     ",".join(days) if days else "0,1,2,3,4,5,6"),
+                )
+                conn.commit()
+            return RedirectResponse("/settings", status_code=303)
+        finally:
+            conn.close()
+
+    @app.post("/settings/tasks/{task_id}/delete")
+    async def settings_task_delete(request: Request, task_id: int):
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            conn.commit()
+            return RedirectResponse("/settings", status_code=303)
+        finally:
+            conn.close()
+
+    @app.post("/settings/tasks/rewards")
+    async def settings_task_rewards(request: Request):
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            form = await request.form()
+            rewards = {}
+            for kid in kids(conn):
+                try:
+                    goal = max(0, int(form.get(f"goal_{kid['id']}") or 0))
+                except ValueError:
+                    goal = 0
+                reward = (form.get(f"reward_{kid['id']}") or "").strip()[:60]
+                if goal or reward:
+                    rewards[str(kid["id"])] = {"goal": goal, "reward": reward}
+            db.set_setting(conn, "task_rewards", json.dumps(rewards))
+            conn.commit()
+            return RedirectResponse("/settings", status_code=303)
         finally:
             conn.close()
 

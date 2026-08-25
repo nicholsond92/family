@@ -166,6 +166,85 @@
 </div>
 
 <div class="card">
+  <h2>Tasks &amp; rewards</h2>
+  <p class="muted small" style="margin:0 0 0.6rem">Daily checklists the kids tap off on
+  the wall display's Tasks tab — brush teeth, make the bed, feed the cat. Each check
+  earns stars; set a weekly star goal and a reward to work toward.</p>
+  {% for t in tasks_list %}
+  <div class="feedrow">
+    <div>
+      <span class="dot" style="background: {{ t.kid_color }}"></span>
+      <strong>{{ t.kid_name }}</strong>
+      {% if t.emoji %}{{ t.emoji }}{% endif %} {{ t.label }}
+      <span class="muted small">· {{ t.section }} · ⭐ {{ t.points }}{% if t.time %} · {{ t.time }}{% endif %} ·
+        {% for d in t.days.split(',') %}{{ ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"][d | int] }}{% if not loop.last %}, {% endif %}{% endfor %}
+      </span>
+    </div>
+    <form method="post" action="/settings/tasks/{{ t.id }}/delete">
+      <button class="btn danger" type="submit">Remove</button>
+    </form>
+  </div>
+  {% endfor %}
+  <form method="post" action="/settings/tasks/add" class="stack">
+    <div class="grid3">
+      <label>Kid
+        <select name="kid_id" required>
+          {% for k in kids %}<option value="{{ k['id'] }}">{{ k['name'] }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Task
+        <input name="label" placeholder="Brush teeth" required>
+      </label>
+      <label>Emoji <span class="muted small">(optional)</span>
+        <input name="emoji" placeholder="🪥" maxlength="8" style="max-width:5rem">
+      </label>
+    </div>
+    <div class="grid3">
+      <label>When
+        <select name="section">
+          {% for s in task_sections %}<option value="{{ s }}">{{ s | capitalize }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Stars
+        <input name="points" type="number" value="10" min="0" max="1000">
+      </label>
+      <label>Time <span class="muted small">(optional)</span>
+        <input name="time" type="time">
+      </label>
+    </div>
+    <fieldset>
+      <legend>Days</legend>
+      <div class="kidchecks">
+        {% for d in ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"] %}
+        <label class="checkline">
+          <input type="checkbox" name="days" value="{{ loop.index0 }}" checked> {{ d }}
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <div><button class="btn primary" type="submit">Add task</button></div>
+  </form>
+  <h3 style="margin:1.2rem 0 0.4rem">Weekly rewards</h3>
+  <p class="muted small" style="margin:0 0 0.6rem">Stars reset each Monday. When a kid
+  reaches their goal, the display shows what they earned.</p>
+  <form method="post" action="/settings/tasks/rewards" class="stack">
+    {% for k in kids %}
+    {% set conf = task_rewards.get(k['id'] | string, {}) %}
+    <div class="grid3">
+      <label>{{ k['name'] }} — star goal
+        <input name="goal_{{ k['id'] }}" type="number" min="0" value="{{ conf.get('goal') or '' }}" placeholder="50">
+      </label>
+      <label>Reward
+        <input name="reward_{{ k['id'] }}" value="{{ conf.get('reward') or '' }}" placeholder="Movie night pick">
+      </label>
+      <span></span>
+    </div>
+    {% endfor %}
+    <div><button class="btn" type="submit">Save rewards</button></div>
+  </form>
+</div>
+
+<div class="card">
   <h2>Appearance</h2>
   <form method="post" action="/settings/appearance" class="row">
     <label>My theme
