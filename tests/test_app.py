@@ -364,6 +364,19 @@ def test_lunch_on_display(env, client, monkeypatch):
     conn.close()
 
 
+def test_display_has_tabbed_views(env, client):
+    do_setup(client)
+    conn = db.connect()
+    token = db.get_setting(conn, "display_token")
+    display = TestClient(env).get(f"/display?token={token}").text
+    assert 'data-view="today"' in display
+    assert 'data-view="week"' in display
+    assert 'id="view-today"' in display
+    assert 'id="view-week"' in display
+    assert "Tomorrow" in display
+    conn.close()
+
+
 def test_pwa_install_surface(env, client):
     do_setup(client)
     m = client.get("/manifest.webmanifest")
