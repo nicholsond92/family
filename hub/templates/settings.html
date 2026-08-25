@@ -175,6 +175,92 @@
 </div>
 
 <div class="card">
+  <h2>Notifications</h2>
+  <p class="muted small" style="margin:0 0 0.6rem">Get a push notification on this
+  device when an event's reminder comes due (set a reminder when adding or editing
+  an event). On iPhone, first add the hub to your Home Screen (Share →
+  Add to Home Screen) and enable from inside the installed app — Apple only allows
+  notifications for installed apps.</p>
+  <div class="row">
+    <button class="btn primary" type="button" id="pushEnable">Enable on this device</button>
+    <button class="btn" type="button" id="pushTest">Send a test</button>
+    <button class="btn" type="button" id="pushDisable">Disable</button>
+  </div>
+  <p class="muted small" id="pushStatus" style="margin:0.5rem 0 0"></p>
+</div>
+
+<script>
+(function () {
+  const status = document.getElementById("pushStatus");
+  const say = (t) => { status.textContent = t; };
+
+  async function ready() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      say("This browser doesn't support push notifications."); return null;
+    }
+    return navigator.serviceWorker.ready;
+  }
+  function fromB64(s) {
+    const pad = "=".repeat((4 - (s.length % 4)) % 4);
+    const raw = atob((s + pad).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+  }
+  async function currentSub() {
+    const reg = await ready();
+    return reg ? reg.pushManager.getSubscription() : null;
+  }
+  (async () => {
+    const sub = await currentSub();
+    if (sub) say("Notifications are enabled on this device.");
+  })();
+
+  document.getElementById("pushEnable").addEventListener("click", async () => {
+    const reg = await ready();
+    if (!reg) return;
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") { say("Permission was not granted."); return; }
+    const keyResp = await fetch("/push/key");
+    if (!keyResp.ok) { say("Couldn't fetch the push key."); return; }
+    const { key } = await keyResp.json();
+    try {
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: fromB64(key),
+      });
+      const save = await fetch("/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sub.toJSON()),
+      });
+      say(save.ok ? "Notifications enabled on this device ✓"
+                  : "Couldn't save the subscription.");
+    } catch (e) {
+      say("Couldn't subscribe: " + e.message);
+    }
+  });
+
+  document.getElementById("pushTest").addEventListener("click", async () => {
+    const r = await fetch("/push/test", { method: "POST" });
+    const data = r.ok ? await r.json() : { sent: 0 };
+    say(data.sent ? "Test sent — check your notifications."
+                  : "No subscribed devices yet — enable first.");
+  });
+
+  document.getElementById("pushDisable").addEventListener("click", async () => {
+    const sub = await currentSub();
+    if (!sub) { say("This device wasn't subscribed."); return; }
+    await fetch("/push/unsubscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: sub.endpoint }),
+    });
+    await sub.unsubscribe();
+    say("Notifications disabled on this device.");
+  });
+})();
+</script>
+
+<div class="card">
   <h2>Tasks &amp; rewards</h2>
   <p class="muted small" style="margin:0 0 0.6rem">Daily checklists the kids tap off on
   the wall display's Tasks tab — brush teeth, make the bed, feed the cat. Each check

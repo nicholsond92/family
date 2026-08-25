@@ -38,9 +38,21 @@
       </label>
       {% endif %}
     </div>
-    <label>Location
-      <input name="location" value="{{ event['location'] if event else '' }}">
-    </label>
+    <div class="grid3">
+      <label>Location
+        <input name="location" value="{{ event['location'] if event else '' }}">
+      </label>
+      <label>Reminder <span class="muted small">(push notification)</span>
+        <select name="reminder_minutes">
+          {% for value, label in reminder_choices %}
+          <option value="{{ value }}"
+            {% if event and (event['reminder_minutes'] | string == value if event['reminder_minutes'] is not none else value == '') %}selected{% endif %}>
+            {{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <span></span>
+    </div>
     <label>Notes
       <textarea name="notes" rows="3">{{ event['notes'] if event else '' }}</textarea>
     </label>

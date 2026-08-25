@@ -167,11 +167,20 @@ CREATE TABLE IF NOT EXISTS task_checks(
   date TEXT NOT NULL,
   PRIMARY KEY (task_id, date)
 );
+
+CREATE TABLE IF NOT EXISTS push_subscriptions(
+  id {ID},
+  parent_id INTEGER NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
+  endpoint TEXT UNIQUE NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 """
 
 # Dropped (children first) when migrating an empty pre-v2 database.
 _APP_TABLES = [
-    "task_checks", "tasks",
+    "push_subscriptions", "task_checks", "tasks",
     "messages", "threads", "swaps", "custody_overrides", "custody_schedule",
     "event_kids", "events", "feeds", "kids", "circle_parents", "circles",
     "parents",
@@ -318,8 +327,25 @@ def init_db(conn) -> None:
         _migrate_pre_v2(conn)
     conn.executescript(schema)
     conn.commit()
+    # Columns added after v2 shipped — CREATE IF NOT EXISTS can't add columns
+    # to existing tables, so ensure them explicitly.
+    _ensure_column(conn, "events", "reminder_minutes", "INTEGER")
+    _ensure_column(conn, "events", "reminder_sent", "INTEGER NOT NULL DEFAULT 0")
     if version != SCHEMA_VERSION:
         set_setting(conn, "schema_version", SCHEMA_VERSION)
+
+
+def _ensure_column(conn, table: str, column: str, decl: str) -> None:
+    if getattr(conn, "is_postgres", False):
+        conn.execute(
+            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {decl}")
+        conn.commit()
+        return
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # already present
 
 
 def _table_empty_or_missing(conn, table: str) -> bool:

@@ -1,0 +1,14 @@
+# Pokes the hub's reminder dispatcher. The endpoint is idempotent and
+# returns only counts, so no secret is needed. GitHub cron is best-effort;
+# the dispatcher's grace window absorbs the jitter.
+name: Send due reminders
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Poke the dispatcher
+        run: curl -sS -X POST --max-time 30 "https://family-mu-roan.vercel.app/push/dispatch"

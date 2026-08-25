@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import custody, db, feeds, lunch, security
+from . import custody, db, feeds, lunch, push, security
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -443,6 +443,7 @@ def create_app() -> FastAPI:
 
     templates.env.filters["fmt_time"] = fmt_time
     templates.env.filters["school_badge"] = school_badge
+    templates.env.globals["reminder_choices"] = push.REMINDER_CHOICES
     templates.env.filters["fmt_date"] = lambda d: (
         date.fromisoformat(d) if isinstance(d, str) else d
     ).strftime("%a %b %-d")
@@ -937,6 +938,10 @@ def create_app() -> FastAPI:
             "private": 1 if form.get("private") else 0,
             "kid_ids": [int(k) for k in form.getlist("kid_ids")],
             "repeat_until": form.get("repeat_until") or None,
+            "reminder_minutes": (
+                int(form["reminder_minutes"])
+                if (form.get("reminder_minutes") or "").isdigit() else None
+            ),
         }
 
     def _set_event_kids(conn, event_id: int, kid_ids: list[int]):
@@ -972,12 +977,14 @@ def create_app() -> FastAPI:
                 event_id = db.insert_id(
                     conn,
                     "INSERT INTO events(title, category, date, start_time, end_time, all_day, "
-                    "location, notes, private, series_id, created_by, created_at) "
-                    "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "location, notes, private, series_id, created_by, created_at, "
+                    "reminder_minutes) "
+                    "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         f["title"], f["category"], d.isoformat(), f["start_time"],
                         f["end_time"], f["all_day"], f["location"], f["notes"],
                         f["private"], series_id, me["id"], now,
+                        f["reminder_minutes"],
                     ),
                 )
                 _set_event_kids(conn, event_id, f["kid_ids"])
@@ -1032,11 +1039,13 @@ def create_app() -> FastAPI:
             f = await _event_form_fields(request)
             conn.execute(
                 "UPDATE events SET title = ?, category = ?, date = ?, start_time = ?, "
-                "end_time = ?, all_day = ?, location = ?, notes = ?, private = ? "
+                "end_time = ?, all_day = ?, location = ?, notes = ?, private = ?, "
+                "reminder_minutes = ?, reminder_sent = 0 "
                 "WHERE id = ?",
                 (
                     f["title"], f["category"], f["date"], f["start_time"], f["end_time"],
-                    f["all_day"], f["location"], f["notes"], f["private"], event_id,
+                    f["all_day"], f["location"], f["notes"], f["private"],
+                    f["reminder_minutes"], event_id,
                 ),
             )
             _set_event_kids(conn, event_id, f["kid_ids"])
@@ -2048,16 +2057,19 @@ def create_app() -> FastAPI:
                     except ValueError:
                         pass
                 kid_ids = [int(k) for k in form.getlist("kid_ids")]
+                reminder = (int(form["reminder_minutes"])
+                            if (form.get("reminder_minutes") or "").isdigit()
+                            else None)
                 now = datetime.now().isoformat(timespec="seconds")
                 for day in dates:
                     event_id = db.insert_id(
                         conn,
                         "INSERT INTO events(title, category, date, start_time, "
                         "end_time, all_day, location, notes, private, series_id, "
-                        "created_by, created_at) "
-                        "VALUES(?, 'other', ?, ?, NULL, ?, '', '', 0, ?, ?, ?)",
+                        "created_by, created_at, reminder_minutes) "
+                        "VALUES(?, 'other', ?, ?, NULL, ?, '', '', 0, ?, ?, ?, ?)",
                         (title, day.isoformat(), start, 0 if start else 1,
-                         series_id, adult["id"], now),
+                         series_id, adult["id"], now, reminder),
                     )
                     _set_event_kids(conn, event_id, kid_ids)
                 conn.commit()
@@ -2186,6 +2198,81 @@ def create_app() -> FastAPI:
             db.set_setting(conn, "task_rewards", json.dumps(rewards))
             conn.commit()
             return RedirectResponse("/settings", status_code=303)
+        finally:
+            conn.close()
+
+    @app.get("/push/key")
+    def push_key(request: Request):
+        conn = get_conn()
+        try:
+            if not current_parent(request, conn):
+                return JSONResponse({"error": "login required"}, status_code=403)
+            return JSONResponse({"key": push.get_vapid(conn)["public_key"]})
+        finally:
+            conn.close()
+
+    @app.post("/push/subscribe")
+    async def push_subscribe(request: Request):
+        conn = get_conn()
+        try:
+            me = current_parent(request, conn)
+            if not me:
+                return JSONResponse({"error": "login required"}, status_code=403)
+            try:
+                sub = json.loads((await request.body()).decode() or "{}")
+            except ValueError:
+                sub = {}
+            if not push.save_subscription(conn, me["id"], sub):
+                return JSONResponse({"error": "bad subscription"},
+                                    status_code=400)
+            return JSONResponse({"ok": True})
+        finally:
+            conn.close()
+
+    @app.post("/push/unsubscribe")
+    async def push_unsubscribe(request: Request):
+        conn = get_conn()
+        try:
+            me = current_parent(request, conn)
+            if not me:
+                return JSONResponse({"error": "login required"}, status_code=403)
+            try:
+                data = json.loads((await request.body()).decode() or "{}")
+            except ValueError:
+                data = {}
+            if data.get("endpoint"):
+                push.remove_subscription(conn, data["endpoint"])
+            return JSONResponse({"ok": True})
+        finally:
+            conn.close()
+
+    @app.post("/push/test")
+    def push_test(request: Request):
+        conn = get_conn()
+        try:
+            me = current_parent(request, conn)
+            if not me:
+                return JSONResponse({"error": "login required"}, status_code=403)
+            sent = push.send_to_parents(conn, {me["id"]}, {
+                "title": "Family Hub",
+                "body": "Notifications are working on this device 🎉",
+                "url": "/",
+            })
+            return JSONResponse({"sent": sent})
+        finally:
+            conn.close()
+
+    @app.post("/push/dispatch")
+    @app.get("/push/dispatch")
+    def push_dispatch(request: Request):
+        """Poked every few minutes by a scheduled GitHub Action. Idempotent
+        and unauthenticated by design: it can only cause due reminders to be
+        delivered once, and returns nothing but counts."""
+        conn = get_conn()
+        try:
+            tz = hub_tz(conn)
+            now = datetime.now(tz) if tz else datetime.now()
+            return JSONResponse(push.dispatch(conn, now))
         finally:
             conn.close()
 
