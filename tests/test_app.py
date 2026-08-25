@@ -387,6 +387,61 @@ def test_home_away_custody_colors(env, client):
     conn.close()
 
 
+def test_custody_driven_routines(env, client):
+    from datetime import date as date_cls
+
+    from hub import custody as custody_mod
+
+    do_setup(client)
+    conn = db.connect()
+    circle1 = conn.execute(
+        "SELECT circle_id FROM circle_parents WHERE parent_id = ?",
+        (parent_id(conn, "Dylan"),),
+    ).fetchone()["circle_id"]
+
+    # Custody-resolved routine, every day of the week.
+    client.post("/settings/routines/add", data={
+        "label": "picks up the girls from school",
+        "time": "15:00",
+        "circle_id": str(circle1),
+        "who": "custodian",
+        "days": ["0", "1", "2", "3", "4", "5", "6"],
+    })
+    # Pinned-adult routine.
+    client.post("/settings/routines/add", data={
+        "label": "handles bedtime",
+        "time": "20:00",
+        "circle_id": str(circle1),
+        "who": str(parent_id(conn, "Mark")),
+        "days": ["0", "1", "2", "3", "4", "5", "6"],
+    })
+    # A routine on a different weekday must not show today.
+    client.post("/settings/routines/add", data={
+        "label": "takes out the trash",
+        "time": "08:00",
+        "circle_id": str(circle1),
+        "who": "custodian",
+        "days": [str((date_cls.today().weekday() + 1) % 7)],
+    })
+
+    who_id = custody_mod.custodian_on(conn, circle1, date_cls.today())
+    who_first = conn.execute(
+        "SELECT name FROM parents WHERE id = ?", (who_id,)
+    ).fetchone()["name"].split()[0]
+    token = db.get_setting(conn, "display_token")
+    display = TestClient(env).get(f"/display?token={token}").text
+    assert f"<strong>{who_first}</strong> picks up the girls from school" in display
+    assert "<strong>Mark</strong> handles bedtime" in display
+    assert "takes out the trash" not in display
+
+    # Removing the first routine leaves the pinned one.
+    client.post("/settings/routines/0/delete")
+    display2 = TestClient(env).get(f"/display?token={token}").text
+    assert "picks up the girls" not in display2
+    assert "handles bedtime" in display2
+    conn.close()
+
+
 def test_display_has_tabbed_views(env, client):
     do_setup(client)
     conn = db.connect()
