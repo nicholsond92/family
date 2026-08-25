@@ -449,44 +449,56 @@
     <input type="hidden" name="token" value="{{ display_token }}">
     <h3 class="dmodaltitle">Add to the calendar</h3>
     <input class="dfield" name="title" placeholder="What's happening?" maxlength="120" required autocomplete="off">
-    <input class="dfield" type="date" name="date" value="{{ today.isoformat() }}" required>
+    <label class="dformgroup">
+      <span class="dformlabel">Date</span>
+      <input class="dfield" type="date" name="date" value="{{ today.isoformat() }}" required>
+    </label>
     <div class="dfieldrow">
-      <label class="dhint" style="flex:1; display:flex; flex-direction:column; gap:5px">Starts
+      <label class="dformgroup">
+        <span class="dformlabel">Starts</span>
         <input class="dfield" type="time" name="start_time">
       </label>
-      <label class="dhint" style="flex:1; display:flex; flex-direction:column; gap:5px">Ends
+      <label class="dformgroup">
+        <span class="dformlabel">Ends</span>
         <input class="dfield" type="time" name="end_time">
       </label>
     </div>
-    <p class="dhint">Leave the times blank for an all-day event.</p>
+    <p class="dformhint">Leave the times blank for an all-day event.</p>
     <div class="dfieldrow">
-      <label class="dhint" style="flex:1; display:flex; flex-direction:column; gap:5px">Repeats weekly until <span style="font-weight:600">(leave blank for one-time)</span>
-        <input class="dfield" type="date" name="repeat_until">
-      </label>
-      <label class="dhint" style="flex:1; display:flex; flex-direction:column; gap:5px">Reminder
+      <label class="dformgroup">
+        <span class="dformlabel">Reminder</span>
         <select class="dfield" name="reminder_minutes">
           {% for value, label in reminder_choices %}
           <option value="{{ value }}">{{ label }}</option>
           {% endfor %}
         </select>
       </label>
-    </div>
-    <div class="dpickrow">
-      {% for k in kids %}
-      <label class="dpick">
-        <input type="checkbox" name="kid_ids" value="{{ k['id'] }}">
-        <span><i class="ddot" style="background: {{ k['color'] }}"></i>{{ k['name'] | first_name }}</span>
+      <label class="dformgroup">
+        <span class="dformlabel">Repeats weekly until</span>
+        <input class="dfield" type="date" name="repeat_until">
       </label>
-      {% endfor %}
     </div>
-    <p class="dhint">Added by</p>
-    <div class="dpickrow">
-      {% for p in parents_list %}
-      <label class="dpick">
-        <input type="radio" name="parent_id" value="{{ p['id'] }}" required>
-        <span><i class="ddot" style="background: {{ p['color'] }}"></i>{{ p['name'] | first_name }}</span>
-      </label>
-      {% endfor %}
+    <div class="dformgroup">
+      <span class="dformlabel">Who it's for</span>
+      <div class="dpickrow">
+        {% for k in kids %}
+        <label class="dpick">
+          <input type="checkbox" name="kid_ids" value="{{ k['id'] }}">
+          <span><i class="ddot" style="background: {{ k['color'] }}"></i>{{ k['name'] | first_name }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="dformgroup">
+      <span class="dformlabel">Added by</span>
+      <div class="dpickrow">
+        {% for p in parents_list %}
+        <label class="dpick">
+          <input type="radio" name="parent_id" value="{{ p['id'] }}" required>
+          <span><i class="ddot" style="background: {{ p['color'] }}"></i>{{ p['name'] | first_name }}</span>
+        </label>
+        {% endfor %}
+      </div>
     </div>
     <div class="dmodalbtns">
       <button type="button" class="dbtn" id="addcancel">Cancel</button>
