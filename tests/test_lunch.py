@@ -67,7 +67,7 @@ def _sample_payload():
 
 def test_parse_month_known_shape():
     lunches = lunch.parse_month(_sample_payload())
-    assert lunches == {"2026-08-25": "Cheese Pizza, Garden Salad, Milk"}
+    assert lunches == {"2026-08-25": ["Cheese Pizza", "Garden Salad", "Milk"]}
 
 
 def test_parse_month_plain_lists_and_alt_keys():
@@ -79,7 +79,15 @@ def test_parse_month_plain_lists_and_alt_keys():
             ]},
         ]
     }
-    assert lunch.parse_month(payload) == {"2026-09-01": "Tacos, Refried Beans"}
+    assert lunch.parse_month(payload) == {"2026-09-01": ["Tacos", "Refried Beans"]}
+
+
+def test_prettify_item():
+    assert lunch.prettify_item("MINI CORN DOGS") == "Mini Corn Dogs"
+    assert lunch.prettify_item("TACO MEAT W/BEAN/CHIPS") == "Taco Meat W/Bean/Chips"
+    assert lunch.prettify_item("BBQ RIB SANDWICH") == "BBQ Rib Sandwich"
+    # Mixed-case input is left alone.
+    assert lunch.prettify_item("Cheese Pizza") == "Cheese Pizza"
 
 
 def test_parse_month_garbage_is_empty():
@@ -100,14 +108,39 @@ def test_lunches_for_uses_cache(tmp_path, monkeypatch):
 
     def fake_fetch(url, year, month):
         calls.append((year, month))
-        return {"2026-08-25": "Cheese Pizza"}, []
+        return {"2026-08-25": ["MINI CORN DOGS", "TOSSED SIDE SALAD",
+                               "MILK", "VARIETY", "KETCHUP & MUSTARD"]}, []
 
     monkeypatch.setattr(lunch, "fetch_month", fake_fetch)
     days = [date(2026, 8, 24), date(2026, 8, 25)]
     out = lunch.lunches_for(conn, days)
-    assert out == {"2026-08-25": [{"label": "Elementary", "text": "Cheese Pizza"}]}
+    # Staples filtered by the default ignore list; shouting title-cased.
+    assert out == {"2026-08-25": [
+        {"label": "Elementary", "text": "Mini Corn Dogs, Tossed Side Salad"}
+    ]}
     # Second call within the TTL hits the cache, not the network.
     out2 = lunch.lunches_for(conn, days)
     assert out2 == out
     assert len(calls) == 1
+
+    # A custom ignore list applies without refetching.
+    db.set_setting(conn, "lunch_ignore", "salad")
+    out3 = lunch.lunches_for(conn, days)
+    assert out3["2026-08-25"][0]["text"] == (
+        "Mini Corn Dogs, Milk, Variety, Ketchup & Mustard"
+    )
+    conn.close()
+
+
+def test_lunches_for_reads_old_string_cache(tmp_path):
+    from hub import db
+    conn = db.connect(str(tmp_path / "t.db"))
+    lunch.set_menus(conn, [{"url": "https://menus.healthepro.com/organizations/9/menus/1"}])
+    import json as _json
+    conn_key = "lunch_cache:0:2026-08"
+    db.set_setting(conn, conn_key, _json.dumps({
+        "at": 9999999999, "days": {"2026-08-25": "CHEESE PIZZA, MILK"},
+    }))
+    out = lunch.lunches_for(conn, [date(2026, 8, 25)])
+    assert out["2026-08-25"][0]["text"] == "Cheese Pizza"
     conn.close()

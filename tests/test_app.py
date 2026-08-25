@@ -354,11 +354,12 @@ def test_lunch_on_display(env, client, monkeypatch):
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
     monkeypatch.setattr(
         lunch_mod, "fetch_month",
-        lambda url, y, m: ({tomorrow: "Cheese Pizza, Corn"}, []),
+        lambda url, y, m: ({tomorrow: ["CHEESE PIZZA", "CORN", "MILK"]}, []),
     )
     token = db.get_setting(conn, "display_token")
     display = TestClient(env).get(f"/display?token={token}").text
-    assert "Cheese Pizza, Corn" in display
+    assert "Cheese Pizza, Corn" in display  # title-cased, Milk filtered
+    assert "MILK" not in display and "Milk" not in display
     assert "Lunch" in display
     conn.close()
 

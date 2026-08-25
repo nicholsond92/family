@@ -1396,6 +1396,11 @@ def create_app() -> FastAPI:
                 my_theme=db.get_setting(conn, f"theme:{me['id']}", "light") or "light",
                 display_theme=db.get_setting(conn, "display_theme", "warm") or "warm",
                 lunch_menus=lunch.get_menus(conn),
+                lunch_ignore=(
+                    db.get_setting(conn, "lunch_ignore")
+                    if db.get_setting(conn, "lunch_ignore") is not None
+                    else lunch.DEFAULT_IGNORE
+                ),
             )
         finally:
             conn.close()
@@ -1524,6 +1529,9 @@ def create_app() -> FastAPI:
                 if url and lunch.parse_menu_url(url):
                     menus.append({"url": url, "label": label})
             lunch.set_menus(conn, menus)
+            if "lunch_ignore" in form:
+                db.set_setting(conn, "lunch_ignore",
+                               (form.get("lunch_ignore") or "").strip())
             # Drop caches so the new source shows up immediately.
             conn.execute("DELETE FROM settings WHERE key LIKE 'lunch_cache:%'")
             conn.commit()
@@ -1557,7 +1565,11 @@ def create_app() -> FastAPI:
                     for a in attempts
                 )
                 sample = "".join(
-                    f"<li><strong>{html.escape(d)}</strong>: {html.escape(t)}</li>"
+                    "<li><strong>{}</strong>: {}</li>".format(
+                        html.escape(d),
+                        html.escape(", ".join(lunch.prettify_item(i) for i in t)
+                                    if isinstance(t, list) else str(t)),
+                    )
                     for d, t in sorted(lunches.items())[:5]
                 )
                 discovery = ""
