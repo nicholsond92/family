@@ -690,3 +690,122 @@ html, body { height: 100%; }
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+a.dtab { text-decoration: none; }
+
+/* ---- phones: the display doubles as the co-parents' daily PWA ----
+   vw-based type collapses on a narrow portrait screen, so pin sizes in px,
+   move the rail to a bottom tab bar, and stack the wide grids. */
+@media (max-width: 700px) {
+  .dshell { flex-direction: column-reverse; min-height: 100dvh; }
+  .drail {
+    width: 100%;
+    min-width: 0;
+    flex-direction: row;
+    justify-content: space-around;
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+    gap: 0;
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    box-shadow: 0 -2px 10px rgba(90, 80, 60, 0.1);
+  }
+  .dtab { width: auto; min-width: 56px; font-size: 11px; padding: 6px 8px; border-radius: 12px; gap: 3px; }
+  .dtab svg { width: 22px; height: 22px; }
+  .dadd { margin-top: 0; }
+  .dmain { padding: 12px 14px; overflow-y: auto; }
+  .dheader { padding-bottom: 10px; }
+  .dhousehold { font-size: 12px; }
+  .ddate { font-size: 21px; }
+  .dheadright { gap: 12px; }
+  .dclock { display: none; }
+  .dtemp { font-size: 20px; }
+  .dwmeta { font-size: 10px; line-height: 1.4; }
+  .dseg { padding: 3px; margin-bottom: 10px; gap: 2px; }
+  .dsegbtn { font-size: 13px; padding: 6px 14px; }
+
+  .tlunchrow { gap: 8px; }
+  .tlunchcard { flex: 1 1 100%; padding: 8px 10px; gap: 9px; border-radius: 12px; }
+  .dlunchtag { font-size: 10px; }
+  .tlunchtext { font-size: 13px; }
+  .dschool { width: 30px; height: 30px; min-width: 30px; min-height: 30px; font-size: 11px; }
+  .dschool-xs { width: 14px; height: 14px; min-width: 14px; min-height: 14px; font-size: 7px; margin-right: 4px; }
+  .tallday { gap: 6px; margin-bottom: 8px; }
+  .talldaychip { font-size: 12px; padding: 5px 10px; gap: 5px; }
+  .ttimeline { gap: 8px; overflow-y: visible; }
+  .tevent { gap: 8px; }
+  .ttime { width: 52px; }
+  .tstart { font-size: 14px; }
+  .tend { font-size: 11px; }
+  .tcard { border-radius: 12px; padding: 9px 12px; }
+  .ttitle { font-size: 15px; gap: 6px; }
+  .tnext { font-size: 9px; padding: 2px 8px; margin-left: 6px; }
+  .tloc { font-size: 11px; }
+  .tkids { gap: 5px; margin-top: 5px; }
+  .tkid { font-size: 11px; padding: 2px 8px; gap: 4px; }
+  .davatar-sm { width: 20px; height: 20px; font-size: 10px; }
+  .tnothing { font-size: 15px; padding: 30px 0; }
+  .ttomorrow { font-size: 12px; gap: 10px; padding: 8px 12px; margin-top: 10px; }
+  .ttmlabel { font-size: 10px; }
+
+  .dnav { gap: 8px; padding-bottom: 8px; }
+  .dnavbtn { min-width: 32px; min-height: 32px; font-size: 15px; padding: 0 10px; }
+  .dnavlabel { font-size: 14px; }
+  .dnavhome { font-size: 11px; }
+  .dweek { display: flex; flex-direction: column; gap: 8px; }
+  .dday { border-radius: 12px; padding: 10px; }
+  .ddayhead { font-size: 14px; padding: 0 2px 6px; }
+  .ddayname { font-size: 11px; }
+  .ddaynum { font-size: 14px; }
+  .ddaycustody { font-size: 12px; padding: 4px 8px; border-radius: 8px; gap: 6px; margin-bottom: 5px; }
+  .ddot { width: 8px; height: 8px; }
+  .dkiddots { gap: 2px; }
+  .dlunch { padding: 5px 8px; border-radius: 8px; margin-bottom: 5px; }
+  .dlunchtext { font-size: 12px; -webkit-line-clamp: 2; }
+  .ddayevents { gap: 5px; }
+  .devent { border-radius: 10px; padding: 6px 9px; }
+  .devtime { font-size: 11px; }
+  .devtitle { font-size: 13px; }
+  .devkids { gap: 3px; }
+  .dnothing { font-size: 12px; padding-top: 6px; }
+
+  .dmonthhead { font-size: 9px; gap: 3px; }
+  .dmonth { gap: 3px; }
+  .dmcell { border-radius: 8px; padding: 4px 5px; gap: 2px; }
+  .dmdaynum { font-size: 11px; }
+  .dmchip { width: 8px; height: 4px; }
+  .dmev { font-size: 8px; padding: 1px 4px; border-radius: 4px; }
+  .dmmore { font-size: 8px; }
+
+  .dwho { grid-template-columns: 1fr; gap: 8px; }
+  .dwhocard { border-radius: 12px; padding: 10px 12px; }
+  .dwhotop { gap: 10px; }
+  .davatar { width: 40px; height: 40px; min-width: 40px; min-height: 40px; font-size: 17px; }
+  .dwhoname { font-size: 18px; }
+  .dwhostatus { font-size: 9px; padding: 2px 8px; margin-left: 6px; }
+  .dwhokid { font-size: 11px; padding: 2px 8px; gap: 4px; }
+  .dnext { font-size: 11px; margin-top: 5px; }
+  .dnextarrow { font-size: 13px; }
+  .cstrip { gap: 4px; margin-top: 10px; }
+  .cstripday { border-radius: 8px; padding: 4px; gap: 3px; }
+  .cstripname { font-size: 8px; }
+  .cstripblock { font-size: 10px; padding: 6px 0; border-radius: 5px; }
+
+  .dtaskgrid { grid-template-columns: 1fr; gap: 10px; }
+  .dtaskcard { border-radius: 12px; padding: 12px; gap: 6px; }
+  .dtaskhead { gap: 9px; }
+  .dtaskname { font-size: 17px; }
+  .dtaskmeta { font-size: 11px; }
+  .dstarpill { font-size: 12px; padding: 3px 10px; }
+  .dtaskreward { font-size: 10px; }
+  .dtasksec { font-size: 10px; margin-top: 4px; }
+  .dtask { border-radius: 10px; padding: 8px 10px; gap: 8px; }
+  .dtaskemoji { font-size: 20px; }
+  .dtasklabel { font-size: 14px; }
+  .dtasksub { font-size: 11px; }
+  .dtcheck { width: 24px; height: 24px; min-width: 24px; min-height: 24px; font-size: 12px; }
+
+  .dfooter { font-size: 11px; gap: 6px; flex-wrap: wrap; padding-top: 8px; }
+  .dlegend { padding: 3px 9px; gap: 5px; }
+  .dlegendsep { display: none; }
+}
