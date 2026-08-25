@@ -278,7 +278,7 @@
               <div class="devtitle">{% if ev.visible %}{{ ev.title }}{% else %}Busy{% endif %}</div>
               {% if ev.kids %}
               <div class="devkids">
-                {% for k in ev.kids %}<span class="ddot" style="background: {{ k['color'] }}"></span>{% endfor %}
+                {% for k in ev.kids %}<span class="devkid"><span class="ddot" style="background: {{ k['color'] }}"></span><span class="devkidname">{{ k['name'] | first_name }}</span></span>{% endfor %}
               </div>
               {% endif %}
             </div>
