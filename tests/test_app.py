@@ -763,3 +763,16 @@ def test_display_quick_add_recurring(env, client):
     assert len({row["series_id"] for row in rows}) == 1
     assert rows[0]["series_id"]
     conn.close()
+
+
+def test_today_whos_where_strip(env, client):
+    do_setup(client)
+    conn = db.connect()
+    token = db.get_setting(conn, "display_token")
+    page = TestClient(env).get(f"/display?token={token}").text
+    # The Today view answers "who has which kids" up top: both circles'
+    # custodians appear in the strip with their kid dots.
+    strip = page[page.index('class="twho"'):page.index("lunchrow") if "lunchrow" in page else page.index("ttimeline")]
+    assert "Dylan" in strip  # custodian of circle 1 this week (anchor monday)
+    assert 'class="twhoitem"' in strip
+    conn.close()
