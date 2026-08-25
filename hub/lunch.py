@@ -132,12 +132,12 @@ def _collect_names(node, out: list[str]):
             _collect_names(value, out)
 
 
-def parse_month(payload) -> dict[str, str]:
-    """{iso_date: 'Item, Item, ...'} from an API response payload."""
+def parse_month(payload) -> dict[str, list[str]]:
+    """{iso_date: [item, ...]} from an API response payload."""
     calendar = _find_calendar(payload)
     if not calendar:
         return {}
-    out: dict[str, str] = {}
+    out: dict[str, list[str]] = {}
     for entry in calendar:
         if not isinstance(entry, dict):
             continue
@@ -148,7 +148,7 @@ def parse_month(payload) -> dict[str, str]:
         _collect_names(entry, names)
         deduped = list(dict.fromkeys(n for n in names if len(n) < 80))
         if deduped:
-            out[iso] = ", ".join(deduped)
+            out[iso] = deduped
     return out
 
 
@@ -232,6 +232,44 @@ def discover_api_routes(url: str):
     return sorted(routes)[:80], notes
 
 
+# Items filtered off the wall display by default: daily staples that appear
+# on every menu and drown out what's actually different each day. Editable
+# in Settings (comma-separated, substring match, case-insensitive).
+DEFAULT_IGNORE = "milk, variety, ketchup & mustard, condiment"
+
+
+def ignored_terms(conn) -> list[str]:
+    raw = db.get_setting(conn, "lunch_ignore")
+    if raw is None:
+        raw = DEFAULT_IGNORE
+    return [t.strip().lower() for t in raw.split(",") if t.strip()]
+
+
+def prettify_item(item: str) -> str:
+    """Title-case shouting menu text; leave mixed-case text alone. Short
+    all-caps tokens (BBQ, PBJ) are preserved."""
+    letters = [c for c in item if c.isalpha()]
+    if not letters or sum(c.isupper() for c in letters) / len(letters) < 0.8:
+        return item
+
+    def fix(match):
+        word = match.group(0)
+        # Vowel-less short tokens are initialisms (BBQ, PBJ, BLT, W) — keep.
+        if len(word) <= 3 and word.isupper() and not set(word) & set("AEIOU"):
+            return word
+        return word.capitalize()
+
+    return re.sub(r"[A-Za-z]+", fix, item)
+
+
+def _day_items(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    if isinstance(value, str):  # pre-list cache format
+        return [s.strip() for s in value.split(",") if s.strip()]
+    return []
+
+
 def get_menus(conn) -> list[dict]:
     raw = db.get_setting(conn, "lunch_menus", "") or "[]"
     try:
@@ -279,8 +317,17 @@ def lunches_for(conn, dates: list[date]) -> dict[str, list[dict]]:
                     cached["at"] = datetime.utcnow().timestamp()
                     db.set_setting(conn, cache_key, json.dumps(cached))
             by_date.update(cached.get("days", {}))
+        terms = ignored_terms(conn)
         for d in dates:
             iso = d.isoformat()
-            if iso in by_date:
-                out.setdefault(iso, []).append({"label": label, "text": by_date[iso]})
+            if iso not in by_date:
+                continue
+            items = [
+                prettify_item(item) for item in _day_items(by_date[iso])
+                if not any(term in item.lower() for term in terms)
+            ]
+            if items:
+                out.setdefault(iso, []).append(
+                    {"label": label, "text": ", ".join(items)}
+                )
     return out

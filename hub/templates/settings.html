@@ -51,6 +51,11 @@
       </label>
     </div>
     {% endfor %}
+    <label>Hide items <span class="muted small">(comma-separated; matches anywhere in an
+      item's name — daily staples that would drown out what's different each day)</span>
+      <input name="lunch_ignore" value="{{ lunch_ignore }}"
+             placeholder="milk, variety, ketchup & mustard">
+    </label>
     <div class="row">
       <button class="btn" type="submit">Save lunch menus</button>
       {% if lunch_menus %}<a class="btn" href="/settings/lunch/test">Test the connection</a>{% endif %}
