@@ -374,3 +374,15 @@ a.event:hover { background: #f4f4f5; }
 .feedurl input { flex: 1; font-size: 0.74rem; color: var(--muted-fg); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 .howto { padding-left: 1.1rem; }
 .howto li { margin-bottom: 0.55rem; font-size: 0.86rem; }
+
+/* ---- small screens ---- */
+@media (max-width: 640px) {
+  .topnav { padding: 0.5rem 1rem; height: auto; gap: 0.5rem 1rem; }
+  .navuser { margin-left: 0; }
+  .container { padding: 0 0.9rem 3rem; margin-top: 1rem; }
+  .card { padding: 1rem 1.05rem; }
+  .toolbar { flex-direction: column; align-items: stretch; }
+  .toolbar h1 { text-align: center; }
+  .daycol { min-height: 0; }
+  .feedurl { min-width: 0; }
+}
