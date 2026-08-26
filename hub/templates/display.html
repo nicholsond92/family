@@ -115,11 +115,27 @@
         {% endfor %}
       </div>
       {% endif %}
+      {# Buy-or-pack: each kid answers on the card, and a lit Pack button
+         doubles as the parents' packing reminder. #}
+      {% macro choice_rows(d_iso) %}
+      <div class="lchoices">
+        <span class="lchoicelabel">School lunch or packing?</span>
+        {% for k in kids %}
+        {% set ch = lunch_choices.get(d_iso, {}).get(k['id']) %}
+        <div class="lchoice">
+          <span class="lchoicekid"><span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}</span>
+          <button type="button" class="lcbtn{% if ch == 'school' %} on{% endif %}" data-kid="{{ k['id'] }}" data-date="{{ d_iso }}" data-choice="school">🍽️ School</button>
+          <button type="button" class="lcbtn{% if ch == 'pack' %} on{% endif %}" data-kid="{{ k['id'] }}" data-date="{{ d_iso }}" data-choice="pack">🥪 Pack</button>
+        </div>
+        {% endfor %}
+      </div>
+      {% endmacro %}
       {% set day_lunches = lunches.get(today_day.iso, []) %}
       {% if day_lunches %}
       <!-- Lunch matters in the morning: a slim bar (tap for details) that
            disappears after 1pm. -->
-      <div class="tlunchbar" id="lunchbar" role="button" title="Show full menus">
+      <div class="tlunchbar" id="lunchbar" title="Show full menus">
+        <span class="tlunchbarmain" role="button">
         <span class="dlunchtag">Lunch</span>
         {% for l in day_lunches %}
         {% set b = l.label | school_badge %}
@@ -128,13 +144,16 @@
           <span class="tlunchbartext">{{ l.text }}</span>
         </span>
         {% endfor %}
+        </span>
+        {{ choice_rows(today_day.iso) }}
       </div>
       {% endif %}
       {% if day_is_today and lunches.get(tomorrow_day.iso) %}
       <!-- Evening flip: tomorrow's menus, for packing lunches the night
-           before. Tapping opens tomorrow's day view. -->
-      <a class="tlunchbar" id="lunchbar-tmrw" hidden
-         href="/display?view=calendar&cal=today&day={{ tomorrow_day.iso }}{{ tok }}">
+           before. Tapping the menus opens tomorrow's day view. -->
+      <div class="tlunchbar" id="lunchbar-tmrw" hidden>
+        <a class="tlunchbarmain"
+           href="/display?view=calendar&cal=today&day={{ tomorrow_day.iso }}{{ tok }}">
         <span class="dlunchtag">Lunch tomorrow</span>
         {% for l in lunches.get(tomorrow_day.iso, []) %}
         {% set b = l.label | school_badge %}
@@ -143,7 +162,9 @@
           <span class="tlunchbartext">{{ l.text }}</span>
         </span>
         {% endfor %}
-      </a>
+        </a>
+        {{ choice_rows(tomorrow_day.iso) }}
+      </div>
       {% endif %}
       {% set day_lunches = lunches.get(today_day.iso, []) %}
       {% if day_lunches %}
@@ -633,7 +654,9 @@
   const hourNow = new Date().getHours();
   if (lunchBar) {
     if (actualToday && hourNow >= 13) lunchBar.hidden = true;
-    lunchBar.addEventListener("click", () => {
+    // Expand on the menu text only — the buy-or-pack buttons live in the
+    // same card and must not flip the view.
+    lunchBar.querySelector(".tlunchbarmain").addEventListener("click", () => {
       lunchBar.hidden = true;
       if (lunchRow) lunchRow.hidden = false;
     });
@@ -651,6 +674,25 @@
     if (ttmLunch) ttmLunch.hidden = true;
     if (ttmStrip && ttmStrip.dataset.events === "0") ttmStrip.hidden = true;
   }
+
+  // --- Buy-or-pack: a kid taps School or Pack; tapping it again clears.
+  // Only one of the pair stays lit per kid per day. ---
+  document.querySelectorAll(".lcbtn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const body = new URLSearchParams({
+        kid_id: btn.dataset.kid, date: btn.dataset.date,
+        choice: btn.dataset.choice, token: displayToken,
+      });
+      let resp;
+      try { resp = await fetch("/display/lunch/choice", { method: "POST", body }); }
+      catch (e) { return; }
+      if (!resp.ok) return;
+      const data = await resp.json();
+      btn.closest(".lchoice").querySelectorAll(".lcbtn").forEach((b) => {
+        b.classList.toggle("on", b.dataset.choice === data.choice);
+      });
+    });
+  });
 
   // Refresh the schedule every 5 minutes (URL keeps token and view) —
   // never yank the page out from under someone typing in the modal, and

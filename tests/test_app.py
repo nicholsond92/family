@@ -810,3 +810,49 @@ def test_today_day_browsing(env, client):
     # Bad day values fall back to today.
     assert kiosk.get(f"/display?token={token}&day=junk").status_code == 200
     conn.close()
+
+
+def test_lunch_choice_toggle(env, client):
+    do_setup(client)
+    conn = db.connect()
+    token = db.get_setting(conn, "display_token")
+    kid_id = conn.execute("SELECT id FROM kids WHERE name = 'Emma'").fetchone()["id"]
+    iso = date.today().isoformat()
+    kiosk = TestClient(env)
+
+    # No token, no session -> refused.
+    r = kiosk.post("/display/lunch/choice", data={
+        "kid_id": str(kid_id), "date": iso, "choice": "pack"})
+    assert r.status_code == 403
+
+    # Set, switch, then tap the same choice to clear.
+    r = kiosk.post("/display/lunch/choice", data={
+        "token": token, "kid_id": str(kid_id), "date": iso, "choice": "pack"})
+    assert r.status_code == 200 and r.json()["choice"] == "pack"
+    r = kiosk.post("/display/lunch/choice", data={
+        "token": token, "kid_id": str(kid_id), "date": iso, "choice": "school"})
+    assert r.json()["choice"] == "school"
+    row = conn.execute(
+        "SELECT choice FROM lunch_choices WHERE kid_id = ? AND date = ?",
+        (kid_id, iso)).fetchone()
+    assert row["choice"] == "school"
+    r = kiosk.post("/display/lunch/choice", data={
+        "token": token, "kid_id": str(kid_id), "date": iso, "choice": "school"})
+    assert r.json()["choice"] is None
+    db.invalidate_memo(conn)
+    assert conn.execute(
+        "SELECT 1 FROM lunch_choices WHERE kid_id = ? AND date = ?",
+        (kid_id, iso)).fetchone() is None
+
+    # Garbage is rejected.
+    r = kiosk.post("/display/lunch/choice", data={
+        "token": token, "kid_id": str(kid_id), "date": iso, "choice": "maybe"})
+    assert r.status_code == 400
+    r = kiosk.post("/display/lunch/choice", data={
+        "token": token, "kid_id": "999", "date": iso, "choice": "pack"})
+    assert r.status_code == 400
+    far = (date.today() + timedelta(days=30)).isoformat()
+    r = kiosk.post("/display/lunch/choice", data={
+        "token": token, "kid_id": str(kid_id), "date": far, "choice": "pack"})
+    assert r.status_code == 400
+    conn.close()

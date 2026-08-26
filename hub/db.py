@@ -168,6 +168,13 @@ CREATE TABLE IF NOT EXISTS task_checks(
   PRIMARY KEY (task_id, date)
 );
 
+CREATE TABLE IF NOT EXISTS lunch_choices(
+  kid_id INTEGER NOT NULL REFERENCES kids(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,
+  choice TEXT NOT NULL,
+  PRIMARY KEY (kid_id, date)
+);
+
 CREATE TABLE IF NOT EXISTS push_subscriptions(
   id {ID},
   parent_id INTEGER NOT NULL REFERENCES parents(id) ON DELETE CASCADE,
@@ -180,7 +187,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions(
 
 # Dropped (children first) when migrating an empty pre-v2 database.
 _APP_TABLES = [
-    "push_subscriptions", "task_checks", "tasks",
+    "push_subscriptions", "lunch_choices", "task_checks", "tasks",
     "messages", "threads", "swaps", "custody_overrides", "custody_schedule",
     "event_kids", "events", "feeds", "kids", "circle_parents", "circles",
     "parents",
