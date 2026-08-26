@@ -294,34 +294,29 @@ html, body { height: 100%; }
 .twhodots { display: inline-flex; gap: 0.28vw; }
 .twhoswitch { color: var(--muted); font-weight: 700; font-size: 0.95vw; }
 
+a.tlunchbar { color: inherit; text-decoration: none; }
 .tlunchbar {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35vw;
-  background: var(--card);
-  border-radius: 1.1vw;
-  box-shadow: var(--shadow);
-  padding: 0.5vw 1.1vw;
-  margin-bottom: 0.8vw;
-  min-width: 0;
-}
-a.tlunchbarmain { color: inherit; text-decoration: none; }
-.tlunchbarmain {
   display: flex;
   align-items: center;
   gap: 1vw;
   flex-wrap: wrap;
-  min-width: 0;
+  background: var(--card);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  padding: 0.4vw 1.1vw;
+  margin-bottom: 0.8vw;
   cursor: pointer;
+  min-width: 0;
 }
-/* Buy-or-pack rows under the menus. */
-.lchoices {
+/* Buy-or-pack row on the Kids cards. */
+.lchoice {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.35vw 1vw;
-  padding-top: 0.4vw;
-  border-top: 1px dashed var(--line);
+  gap: 0.4vw;
+  background: var(--card);
+  border-radius: 999px;
+  padding: 0.3vw 0.45vw 0.3vw 0.9vw;
+  margin-bottom: 0.3vw;
 }
 .lchoicelabel {
   font-size: 0.8vw;
@@ -329,21 +324,14 @@ a.tlunchbarmain { color: inherit; text-decoration: none; }
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
-}
-.lchoice { display: inline-flex; align-items: center; gap: 0.4vw; }
-.lchoicekid {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3vw;
-  font-weight: 800;
-  font-size: 0.95vw;
+  margin-right: auto;
 }
 .lcbtn {
   border: 1px solid var(--line);
   background: var(--bg);
   color: var(--ink);
   border-radius: 999px;
-  padding: 0.2vw 0.7vw;
+  padding: 0.25vw 0.7vw;
   font-size: 0.85vw;
   font-weight: 700;
   cursor: pointer;
@@ -869,15 +857,11 @@ a.dtab { text-decoration: none; }
   .twho { gap: 8px; margin-bottom: 10px; }
   .twhoitem { gap: 7px; padding: 5px 12px 5px 6px; font-size: 13px; }
   .twhoswitch { font-size: 11px; }
-  .tlunchbar { gap: 7px; padding: 10px 13px; margin-bottom: 10px; border-radius: 16px; }
-  .tlunchbarmain { gap: 7px; }
+  .tlunchbar { gap: 7px; padding: 8px 13px; margin-bottom: 10px; border-radius: 16px; }
   .tlunchbaritem { flex: 1 1 100%; gap: 7px; }
   .tlunchbartext { font-size: 12px; }
-  /* One full-width row per kid so small fingers get big targets. */
-  .lchoices { gap: 6px; padding-top: 8px; }
-  .lchoicelabel { flex: 1 1 100%; font-size: 10px; }
-  .lchoice { flex: 1 1 100%; gap: 6px; }
-  .lchoicekid { font-size: 13px; gap: 5px; margin-right: auto; }
+  .lchoice { gap: 6px; padding: 6px 6px 6px 12px; margin-bottom: 6px; border-radius: 14px; }
+  .lchoicelabel { font-size: 10px; }
   .lcbtn { font-size: 13px; padding: 5px 14px; min-height: 32px; }
   .tlunchrow { gap: 8px; }
   .tlunchcard { flex: 1 1 100%; padding: 8px 10px; gap: 9px; border-radius: 12px; }
