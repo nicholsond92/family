@@ -1686,6 +1686,17 @@ def create_app() -> FastAPI:
             banners = custody_banners(today)
             strip_banners = (banners if target == today
                              else custody_banners(target))
+            # Buy-or-pack answers for the two days whose lunch cards show
+            # them: {iso date: {kid_id: "school" | "pack"}}.
+            choice_days = (target.isoformat(),
+                           (target + timedelta(days=1)).isoformat())
+            lunch_choices: dict[str, dict[int, str]] = {}
+            for row in conn.execute(
+                "SELECT kid_id, date, choice FROM lunch_choices "
+                "WHERE date IN (?, ?)", choice_days,
+            ).fetchall():
+                lunch_choices.setdefault(row["date"], {})[row["kid_id"]] = \
+                    row["choice"]
             return render(
                 request, "display.html", conn,
                 days=upcoming_days, today=today, banners=banners, kids=kids(conn),
@@ -1720,6 +1731,7 @@ def create_app() -> FastAPI:
                 day_next=(target + timedelta(days=1)).isoformat(),
                 next_label=("Tomorrow" if target == today
                             else (target + timedelta(days=1)).strftime("%A")),
+                lunch_choices=lunch_choices,
             )
         finally:
             conn.close()
@@ -2213,6 +2225,58 @@ def create_app() -> FastAPI:
                 "kid_id": task["kid_id"],
                 "stars_week": stars.get(task["kid_id"], 0),
             })
+        finally:
+            conn.close()
+
+    @app.post("/display/lunch/choice")
+    async def display_lunch_choice(request: Request):
+        """A kid taps School or Pack on a lunch card. Tapping the choice
+        already set clears it. Authorized by the display token."""
+        conn = get_conn()
+        try:
+            form = await request.form()
+            token = form.get("token") or request.query_params.get("token")
+            expected = db.get_setting(conn, "display_token")
+            authorized = (
+                (token and expected and token == expected)
+                or current_parent(request, conn) is not None
+            )
+            if not authorized:
+                return JSONResponse({"error": "unauthorized"}, status_code=403)
+            try:
+                kid_id = int(form.get("kid_id") or 0)
+            except ValueError:
+                kid_id = 0
+            kid = conn.execute(
+                "SELECT id FROM kids WHERE id = ?", (kid_id,)).fetchone()
+            choice = form.get("choice")
+            try:
+                d = date.fromisoformat(form.get("date") or "")
+            except ValueError:
+                d = None
+            today = hub_today(conn)
+            if (not kid or choice not in ("school", "pack") or d is None
+                    or abs((d - today).days) > 7):
+                return JSONResponse({"error": "bad request"}, status_code=400)
+            iso = d.isoformat()
+            existing = conn.execute(
+                "SELECT choice FROM lunch_choices WHERE kid_id = ? AND date = ?",
+                (kid_id, iso)).fetchone()
+            if existing and existing["choice"] == choice:
+                conn.execute(
+                    "DELETE FROM lunch_choices WHERE kid_id = ? AND date = ?",
+                    (kid_id, iso))
+                choice = None
+            else:
+                conn.execute(
+                    "INSERT INTO lunch_choices(kid_id, date, choice) "
+                    "VALUES(?, ?, ?) "
+                    "ON CONFLICT(kid_id, date) DO UPDATE SET "
+                    "choice = excluded.choice",
+                    (kid_id, iso, choice))
+            conn.commit()
+            return JSONResponse({"kid_id": kid_id, "date": iso,
+                                 "choice": choice})
         finally:
             conn.close()
 
