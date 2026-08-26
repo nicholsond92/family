@@ -24,11 +24,11 @@
       </svg>
       <span>Calendar</span>
     </button>
-    <button class="dtab" data-view="tasks" title="Tasks">
+    <button class="dtab" data-view="tasks" title="Kids">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M9 6h12M9 12h12M9 18h12"/><path d="M3.5 5.5l1.2 1.2L7 4.4M3.5 11.5l1.2 1.2L7 10.4M3.5 17.5l1.2 1.2L7 16.4"/>
       </svg>
-      <span>Tasks</span>
+      <span>Kids</span>
     </button>
     <button class="dtab" data-view="custody" title="Custody">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -115,27 +115,11 @@
         {% endfor %}
       </div>
       {% endif %}
-      {# Buy-or-pack: each kid answers on the card, and a lit Pack button
-         doubles as the parents' packing reminder. #}
-      {% macro choice_rows(d_iso) %}
-      <div class="lchoices">
-        <span class="lchoicelabel">School lunch or packing?</span>
-        {% for k in kids %}
-        {% set ch = lunch_choices.get(d_iso, {}).get(k['id']) %}
-        <div class="lchoice">
-          <span class="lchoicekid"><span class="ddot" style="background: {{ k['color'] }}"></span>{{ k['name'] | first_name }}</span>
-          <button type="button" class="lcbtn{% if ch == 'school' %} on{% endif %}" data-kid="{{ k['id'] }}" data-date="{{ d_iso }}" data-choice="school">🍽️ School</button>
-          <button type="button" class="lcbtn{% if ch == 'pack' %} on{% endif %}" data-kid="{{ k['id'] }}" data-date="{{ d_iso }}" data-choice="pack">🥪 Pack</button>
-        </div>
-        {% endfor %}
-      </div>
-      {% endmacro %}
       {% set day_lunches = lunches.get(today_day.iso, []) %}
       {% if day_lunches %}
       <!-- Lunch matters in the morning: a slim bar (tap for details) that
            disappears after 1pm. -->
-      <div class="tlunchbar" id="lunchbar" title="Show full menus">
-        <span class="tlunchbarmain" role="button">
+      <div class="tlunchbar" id="lunchbar" role="button" title="Show full menus">
         <span class="dlunchtag">Lunch</span>
         {% for l in day_lunches %}
         {% set b = l.label | school_badge %}
@@ -144,16 +128,13 @@
           <span class="tlunchbartext">{{ l.text }}</span>
         </span>
         {% endfor %}
-        </span>
-        {{ choice_rows(today_day.iso) }}
       </div>
       {% endif %}
       {% if day_is_today and lunches.get(tomorrow_day.iso) %}
       <!-- Evening flip: tomorrow's menus, for packing lunches the night
-           before. Tapping the menus opens tomorrow's day view. -->
-      <div class="tlunchbar" id="lunchbar-tmrw" hidden>
-        <a class="tlunchbarmain"
-           href="/display?view=calendar&cal=today&day={{ tomorrow_day.iso }}{{ tok }}">
+           before. Tapping opens tomorrow's day view. -->
+      <a class="tlunchbar" id="lunchbar-tmrw" hidden
+         href="/display?view=calendar&cal=today&day={{ tomorrow_day.iso }}{{ tok }}">
         <span class="dlunchtag">Lunch tomorrow</span>
         {% for l in lunches.get(tomorrow_day.iso, []) %}
         {% set b = l.label | school_badge %}
@@ -162,9 +143,7 @@
           <span class="tlunchbartext">{{ l.text }}</span>
         </span>
         {% endfor %}
-        </a>
-        {{ choice_rows(tomorrow_day.iso) }}
-      </div>
+      </a>
       {% endif %}
       {% set day_lunches = lunches.get(today_day.iso, []) %}
       {% if day_lunches %}
@@ -368,13 +347,26 @@
             <span class="davatar" style="background: {{ card.kid['color'] }}">{{ card.kid['name'][:1] }}</span>
             <div class="dtaskwho">
               <span class="dtaskname">{{ card.kid['name'] | first_name }}</span>
-              <span class="dtaskmeta"><span data-kid-done="{{ card.kid['id'] }}">{{ card.done_count }}</span>/{{ card.total }} today</span>
+              {% if card.total %}<span class="dtaskmeta"><span data-kid-done="{{ card.kid['id'] }}">{{ card.done_count }}</span>/{{ card.total }} today</span>{% endif %}
             </div>
             <div class="dtaskstars">
               <span class="dstarpill">⭐ <span data-kid-stars="{{ card.kid['id'] }}">{{ card.stars_week }}</span>{% if card.goal %} / {{ card.goal }}{% endif %}</span>
               {% if card.reward %}<span class="dtaskreward">{{ card.reward }}</span>{% endif %}
             </div>
           </div>
+          {# Buy-or-pack: mornings ask about today, from 1pm about tomorrow
+             (JS unhides the row that applies). A lit Pack is the parents'
+             packing reminder. #}
+          {% for d_iso, d_label, d_key in ((kids_today_iso, 'Lunch today', 'today'), (kids_tomorrow_iso, 'Lunch tomorrow', 'tomorrow')) %}
+          {% if lunches.get(d_iso) %}
+          {% set ch = lunch_choices.get(d_iso, {}).get(card.kid['id']) %}
+          <div class="lchoice" data-lunch-day="{{ d_key }}" hidden>
+            <span class="lchoicelabel">{{ d_label }}</span>
+            <button type="button" class="lcbtn{% if ch == 'school' %} on{% endif %}" data-kid="{{ card.kid['id'] }}" data-date="{{ d_iso }}" data-choice="school">🍽️ School</button>
+            <button type="button" class="lcbtn{% if ch == 'pack' %} on{% endif %}" data-kid="{{ card.kid['id'] }}" data-date="{{ d_iso }}" data-choice="pack">🥪 Pack</button>
+          </div>
+          {% endif %}
+          {% endfor %}
           {% for sec in card.sections %}
           <div class="dtasksec">{{ sec.name | capitalize }}</div>
           {% for t in sec.tasks %}
@@ -393,7 +385,7 @@
         {% endfor %}
       </div>
       {% else %}
-      <div class="tnothing">No tasks yet — set them up in Settings → Tasks &amp; rewards.</div>
+      <div class="tnothing">No kids yet — add them in Settings, then set up chores under Tasks &amp; rewards.</div>
       {% endif %}
     </section>
 
@@ -654,9 +646,7 @@
   const hourNow = new Date().getHours();
   if (lunchBar) {
     if (actualToday && hourNow >= 13) lunchBar.hidden = true;
-    // Expand on the menu text only — the buy-or-pack buttons live in the
-    // same card and must not flip the view.
-    lunchBar.querySelector(".tlunchbarmain").addEventListener("click", () => {
+    lunchBar.addEventListener("click", () => {
       lunchBar.hidden = true;
       if (lunchRow) lunchRow.hidden = false;
     });
@@ -675,8 +665,14 @@
     if (ttmStrip && ttmStrip.dataset.events === "0") ttmStrip.hidden = true;
   }
 
-  // --- Buy-or-pack: a kid taps School or Pack; tapping it again clears.
-  // Only one of the pair stays lit per kid per day. ---
+  // --- Buy-or-pack on the Kids cards: mornings ask about today, from 1pm
+  // (once today's lunch is history) about tomorrow. ---
+  const lunchDay = hourNow >= 13 ? "tomorrow" : "today";
+  document.querySelectorAll('[data-lunch-day="' + lunchDay + '"]')
+    .forEach((el) => { el.hidden = false; });
+
+  // A kid taps School or Pack; tapping it again clears. Only one of the
+  // pair stays lit per kid per day.
   document.querySelectorAll(".lcbtn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const body = new URLSearchParams({

@@ -856,3 +856,49 @@ def test_lunch_choice_toggle(env, client):
         "token": token, "kid_id": str(kid_id), "date": far, "choice": "pack"})
     assert r.status_code == 400
     conn.close()
+
+
+def test_kids_screen_lunch_picker(env, client):
+    do_setup(client)
+    conn = db.connect()
+    token = db.get_setting(conn, "display_token")
+    kid_id = conn.execute("SELECT id FROM kids WHERE name = 'Emma'").fetchone()["id"]
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+
+    # A configured menu with a fresh cache covering today and tomorrow.
+    import json as _json
+    from datetime import datetime as _dt
+    db.set_setting(conn, "lunch_menus", _json.dumps(
+        [{"label": "Washington", "url": "https://example.com/menu.pdf"}]))
+    for d in (today, tomorrow):
+        db.set_setting(
+            conn, f"lunch_cache:0:{d.year}-{d.month:02d}",
+            _json.dumps({"at": _dt.utcnow().timestamp(),
+                         "days": {today.isoformat(): "Pizza, Fruit",
+                                  tomorrow.isoformat(): "Tacos, Corn"}}))
+    conn.commit()
+
+    kiosk = TestClient(env)
+    page = kiosk.get(f"/display?token={token}").text
+    # The rail tab reads Kids now.
+    assert "<span>Kids</span>" in page
+    kids_section = page.split('id="view-tasks"')[1].split('id="view-custody"')[0]
+    # Every kid card carries pickers for both days; JS shows the one that
+    # applies by time of day.
+    assert kids_section.count(f'data-date="{today.isoformat()}"') >= 8
+    assert kids_section.count(f'data-date="{tomorrow.isoformat()}"') >= 8
+    assert "Lunch today" in kids_section and "Lunch tomorrow" in kids_section
+    # The calendar lunch bar no longer hosts the picker.
+    cal_section = page.split('id="view-calendar"')[1].split('id="view-tasks"')[0]
+    assert "lcbtn" not in cal_section
+
+    # A stored answer renders lit.
+    kiosk.post("/display/lunch/choice", data={
+        "token": token, "kid_id": str(kid_id),
+        "date": tomorrow.isoformat(), "choice": "pack"})
+    db.invalidate_memo(conn)
+    page = kiosk.get(f"/display?token={token}").text
+    kids_section = page.split('id="view-tasks"')[1].split('id="view-custody"')[0]
+    assert 'lcbtn on"' in kids_section
+    conn.close()

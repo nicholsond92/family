@@ -548,8 +548,6 @@ def create_app() -> FastAPI:
             "SELECT * FROM tasks WHERE active = 1 "
             "ORDER BY time IS NULL, time, id"
         ).fetchall()
-        if not rows:
-            return []
         done_today = {r["task_id"] for r in conn.execute(
             "SELECT task_id FROM task_checks WHERE date = ?",
             (today.isoformat(),)).fetchall()}
@@ -558,10 +556,10 @@ def create_app() -> FastAPI:
         weekday = str(today.weekday())
         cards = []
         for kid in kids(conn):
+            # Every kid gets a card — the Kids screen also carries the
+            # lunch picker, so a kid with no chores today still appears.
             ktasks = [dict(t) for t in rows if t["kid_id"] == kid["id"]
                       and weekday in (t["days"] or "").split(",")]
-            if not ktasks:
-                continue
             for t in ktasks:
                 t["done"] = t["id"] in done_today
             sections = [
@@ -1686,10 +1684,10 @@ def create_app() -> FastAPI:
             banners = custody_banners(today)
             strip_banners = (banners if target == today
                              else custody_banners(target))
-            # Buy-or-pack answers for the two days whose lunch cards show
-            # them: {iso date: {kid_id: "school" | "pack"}}.
-            choice_days = (target.isoformat(),
-                           (target + timedelta(days=1)).isoformat())
+            # Buy-or-pack answers for the days the Kids cards ask about:
+            # {iso date: {kid_id: "school" | "pack"}}.
+            choice_days = (today.isoformat(),
+                           (today + timedelta(days=1)).isoformat())
             lunch_choices: dict[str, dict[int, str]] = {}
             for row in conn.execute(
                 "SELECT kid_id, date, choice FROM lunch_choices "
@@ -1732,6 +1730,8 @@ def create_app() -> FastAPI:
                 next_label=("Tomorrow" if target == today
                             else (target + timedelta(days=1)).strftime("%A")),
                 lunch_choices=lunch_choices,
+                kids_today_iso=today.isoformat(),
+                kids_tomorrow_iso=(today + timedelta(days=1)).isoformat(),
             )
         finally:
             conn.close()
