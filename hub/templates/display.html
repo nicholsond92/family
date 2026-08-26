@@ -220,12 +220,13 @@
       </div>
 
       {% if tomorrow_day %}
-      <a class="ttomorrow" href="/display?view=calendar&cal=today&day={{ tomorrow_day.iso }}{{ tok }}">
+      <a class="ttomorrow" id="ttomorrow" data-events="{{ tomorrow_day.events | length }}"
+         href="/display?view=calendar&cal=today&day={{ tomorrow_day.iso }}{{ tok }}">
         <span class="ttmlabel">{{ next_label }}</span>
         <span class="ttmitem">{{ tomorrow_day.events | length }} event{{ 's' if tomorrow_day.events | length != 1 }}</span>
         {% set tml = lunches.get(tomorrow_day.iso, []) %}
         {% if tml %}
-        <span class="ttmitem">
+        <span class="ttmitem" id="ttm-lunch">
           {% for l in tml %}{% set b = l.label | school_badge %}{% if l.logos %}<img class="dschool dschool-xs dschool-img" src="{{ l.logos[0] }}" alt="">{% else %}<span class="dschool dschool-xs" style="background: {{ b.color }}">{{ b.initials }}</span>{% endif %}{% endfor %}
           lunch posted
         </span>
@@ -641,7 +642,15 @@
       if (!actualToday || hourNow < 13) lunchBar.hidden = false;
     });
   }
-  if (lunchTmrw && hourNow >= 17) lunchTmrw.hidden = false;
+  if (lunchTmrw && hourNow >= 17) {
+    lunchTmrw.hidden = false;
+    // The bottom tomorrow strip would repeat the same menus: keep only its
+    // event count, and drop it entirely when nothing is scheduled.
+    const ttmLunch = document.getElementById("ttm-lunch");
+    const ttmStrip = document.getElementById("ttomorrow");
+    if (ttmLunch) ttmLunch.hidden = true;
+    if (ttmStrip && ttmStrip.dataset.events === "0") ttmStrip.hidden = true;
+  }
 
   // Refresh the schedule every 5 minutes (URL keeps token and view) —
   // never yank the page out from under someone typing in the modal, and
