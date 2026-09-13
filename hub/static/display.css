@@ -778,6 +778,34 @@ input.dfield[type="date"], input.dfield[type="time"] { text-align: left; }
 }
 .dbtnprimary { background: var(--today); border-color: var(--today); color: #4a3000; }
 
+/* Add-to-Home-Screen nudge (phone browsers only; JS gates visibility). */
+.dinstall {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--card);
+  border: 1px solid var(--today);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.dinstallicon { font-size: 22px; line-height: 1.2; }
+.dinstallbody { min-width: 0; }
+.dinstallclose {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 2px 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .dfooter {
   display: flex;
   gap: 0.8vw;

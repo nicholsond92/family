@@ -78,6 +78,18 @@
       </div>
     </header>
 
+    <!-- First-open nudge on phone browsers: invisible once installed (or
+         dismissed) — Apple only allows push reminders for installed apps. -->
+    <div class="dinstall" id="installtip" hidden>
+      <span class="dinstallicon">📲</span>
+      <span class="dinstallbody">
+        <strong>Add this to your Home Screen</strong> to use it like an app —
+        reminders only work from the installed version.
+        <span id="installhow"></span>
+      </span>
+      <button class="dinstallclose" id="installdismiss" title="Dismiss">✕</button>
+    </div>
+
     <!-- ============================ CALENDAR ============================= -->
     {% set tok = ('&token=' ~ display_token) if display_token else '' %}
     <section class="dview" id="view-calendar">
@@ -689,6 +701,29 @@
       });
     });
   });
+
+  // --- Add-to-Home-Screen nudge: phone browsers only, gone once the app
+  // is installed (standalone) or the tip is dismissed. ---
+  const installTip = document.getElementById("installtip");
+  if (installTip) {
+    const standalone = window.matchMedia("(display-mode: standalone)").matches
+      || window.navigator.standalone === true;
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    const isMobile = isIOS || /Android/i.test(navigator.userAgent);
+    let dismissed = false;
+    try { dismissed = localStorage.getItem("installTipDismissed") === "1"; }
+    catch (e) {}
+    if (isMobile && !standalone && !dismissed) {
+      document.getElementById("installhow").textContent = isIOS
+        ? "Tap the Share button below, then “Add to Home Screen.”"
+        : "Open the browser menu (⋮), then “Add to Home screen.”";
+      installTip.hidden = false;
+    }
+    document.getElementById("installdismiss").addEventListener("click", () => {
+      installTip.hidden = true;
+      try { localStorage.setItem("installTipDismissed", "1"); } catch (e) {}
+    });
+  }
 
   // Refresh the schedule every 5 minutes (URL keeps token and view) —
   // never yank the page out from under someone typing in the modal, and
