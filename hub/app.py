@@ -997,6 +997,39 @@ def create_app() -> FastAPI:
                 (event_id, kid_id),
             )
 
+    def _notify_new_event(conn, event_id: int, creator_id: int,
+                          repeats: bool = False) -> None:
+        """Tell the other adults in the event's audience about a new event.
+        One push per series, never one per occurrence. Fails soft — a push
+        hiccup must never break saving the event."""
+        try:
+            ev = conn.execute(
+                "SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+            if not ev:
+                return
+            ids = push.event_notify_parents(conn, ev) - {creator_id}
+            creator = conn.execute(
+                "SELECT name FROM parents WHERE id = ?",
+                (creator_id,)).fetchone()
+            who = (creator["name"].split()[0] if creator else "Someone")
+            when = date.fromisoformat(ev["date"]).strftime("%a %b %-d")
+            if not ev["all_day"] and ev["start_time"]:
+                when += " " + push._fmt_time(ev["start_time"])
+            body = f"{ev['title']} · {when}"
+            if repeats:
+                body += " · repeats weekly"
+            kid_names = [r["name"].split()[0] for r in conn.execute(
+                "SELECT k.name AS name FROM event_kids ek "
+                "JOIN kids k ON k.id = ek.kid_id WHERE ek.event_id = ? "
+                "ORDER BY k.name", (event_id,)).fetchall()]
+            if kid_names:
+                body += " · " + ", ".join(kid_names)
+            push.notify(conn, ids, "new_events",
+                        {"title": f"{who} added an event", "body": body,
+                         "url": "/display"})
+        except Exception:  # noqa: BLE001
+            pass
+
     @app.post("/events/new")
     async def event_create(request: Request):
         conn = get_conn()
@@ -1017,6 +1050,7 @@ def create_app() -> FastAPI:
                     dates.append(d)
                     d += timedelta(weeks=1)
             now = datetime.now().isoformat(timespec="seconds")
+            first_id = None
             for d in dates:
                 event_id = db.insert_id(
                     conn,
@@ -1032,7 +1066,11 @@ def create_app() -> FastAPI:
                     ),
                 )
                 _set_event_kids(conn, event_id, f["kid_ids"])
+                first_id = first_id or event_id
             conn.commit()
+            if first_id:
+                _notify_new_event(conn, first_id, me["id"],
+                                  repeats=len(dates) > 1)
             return RedirectResponse(f"/calendar?start={f['date']}", status_code=303)
         finally:
             conn.close()
@@ -1203,6 +1241,16 @@ def create_app() -> FastAPI:
                     (thread_id, me["id"], form["reason"].strip(), now),
                 )
             conn.commit()
+            try:
+                when = f"{r1s} – {r1e}" if r1s != r1e else r1s
+                push.notify(
+                    conn, member_ids - {me["id"]}, "swaps",
+                    {"title": "Custody swap requested",
+                     "body": f"{me['name'].split()[0]} asked to swap {when}",
+                     "url": f"/swaps/{swap_id}"},
+                )
+            except Exception:  # noqa: BLE001
+                pass
             return RedirectResponse(f"/swaps/{swap_id}", status_code=303)
         finally:
             conn.close()
@@ -1294,6 +1342,16 @@ def create_app() -> FastAPI:
             conn.commit()
             if decision == "approved":
                 custody.apply_swap_overrides(conn, swap)
+            try:
+                push.notify(
+                    conn, {swap["created_by"]}, "swaps",
+                    {"title": f"Swap {decision}",
+                     "body": (f"{me['name'].split()[0]} {decision} your "
+                              "swap request"),
+                     "url": f"/swaps/{swap_id}"},
+                )
+            except Exception:  # noqa: BLE001
+                pass
             return RedirectResponse(f"/swaps/{swap_id}", status_code=303)
         finally:
             conn.close()
@@ -1388,6 +1446,28 @@ def create_app() -> FastAPI:
         finally:
             conn.close()
 
+    def _notify_thread(conn, thread, author, text: str) -> None:
+        """Push a new message to the thread's audience: the circle's
+        co-parents for circle threads, every adult otherwise — minus the
+        author. Fails soft."""
+        try:
+            if thread["circle_id"]:
+                ids = {p["id"] for p in
+                       circle_members(conn).get(thread["circle_id"], [])}
+            else:
+                ids = {p["id"] for p in parents(conn)}
+            ids -= {author["id"]}
+            url = (f"/swaps/{thread['swap_id']}" if thread["swap_id"]
+                   else f"/messages/{thread['id']}")
+            snippet = text.strip()[:120] or thread["subject"]
+            push.notify(
+                conn, ids, "messages",
+                {"title": f"💬 {author['name'].split()[0]} · {thread['subject']}",
+                 "body": snippet, "url": url},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     @app.post("/messages/new")
     async def thread_create(request: Request):
         conn = get_conn()
@@ -1418,6 +1498,9 @@ def create_app() -> FastAPI:
                     (thread_id, me["id"], body, now),
                 )
             conn.commit()
+            thread = conn.execute(
+                "SELECT * FROM threads WHERE id = ?", (thread_id,)).fetchone()
+            _notify_thread(conn, thread, me, body)
             return RedirectResponse(f"/messages/{thread_id}", status_code=303)
         finally:
             conn.close()
@@ -1479,6 +1562,7 @@ def create_app() -> FastAPI:
                      datetime.now().isoformat(timespec="seconds")),
                 )
                 conn.commit()
+                _notify_thread(conn, thread, me, body)
             return RedirectResponse(f"/messages/{thread_id}", status_code=303)
         finally:
             conn.close()
@@ -1779,6 +1863,8 @@ def create_app() -> FastAPI:
                 away_color=db.get_setting(conn, "display_away_color") or "#b1a99e",
                 home_ids=home_parent_ids(conn),
                 routines=get_routines(conn),
+                notify_prefs=push.prefs(conn, me["id"]),
+                notify_pref_keys=push.PREF_KEYS,
                 tasks_list=conn.execute(
                     "SELECT t.*, k.name AS kid_name, k.color AS kid_color "
                     "FROM tasks t JOIN kids k ON k.id = t.kid_id "
@@ -2160,6 +2246,7 @@ def create_app() -> FastAPI:
                             if (form.get("reminder_minutes") or "").isdigit()
                             else None)
                 now = datetime.now().isoformat(timespec="seconds")
+                first_id = None
                 for day in dates:
                     event_id = db.insert_id(
                         conn,
@@ -2171,7 +2258,10 @@ def create_app() -> FastAPI:
                          series_id, adult["id"], now, reminder),
                     )
                     _set_event_kids(conn, event_id, kid_ids)
+                    first_id = first_id or event_id
                 conn.commit()
+                _notify_new_event(conn, first_id, adult["id"],
+                                  repeats=len(dates) > 1)
             dest = "/display?view=today"
             if token:
                 dest += f"&token={token}"
@@ -2410,6 +2500,22 @@ def create_app() -> FastAPI:
                 "url": "/",
             })
             return JSONResponse({"sent": sent})
+        finally:
+            conn.close()
+
+    @app.post("/settings/notifications")
+    async def settings_notifications(request: Request):
+        """Per-adult toggles for what gets pushed to their devices."""
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            me = current_parent(request, conn)
+            form = await request.form()
+            enabled = {key for key, _ in push.PREF_KEYS if form.get(key)}
+            push.set_prefs(conn, me["id"], enabled)
+            return RedirectResponse("/settings#notifications", status_code=303)
         finally:
             conn.close()
 
