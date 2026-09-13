@@ -481,6 +481,9 @@ def test_pwa_install_surface(env, client):
         assert client.get(f"/static/icons/icon-{size}.png").status_code == 200
     page = client.get("/").text
     assert "manifest.webmanifest" in page
+    # First-open nudge markup ships with the page (JS shows it only in a
+    # phone browser that hasn't installed or dismissed it).
+    assert 'id="installtip"' in page and "Add this to your Home Screen" in page
     assert "serviceWorker" in page
     assert "apple-touch-icon" in page
 
