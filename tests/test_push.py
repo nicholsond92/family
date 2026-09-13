@@ -60,7 +60,7 @@ def test_dispatch_sends_due_reminder_once(env, client, sent):
     # Too early: nothing goes out, reminder stays armed.
     early = datetime.combine(today, datetime.strptime("15:00", "%H:%M").time())
     out = push.dispatch(conn, early)
-    assert out == {"processed": 0, "sent": 0}
+    assert out == {"processed": 0, "sent": 0, "lunch_check_sent": 0}
 
     due = datetime.combine(today, datetime.strptime("15:35", "%H:%M").time())
     out = push.dispatch(conn, due)
@@ -71,7 +71,8 @@ def test_dispatch_sends_due_reminder_once(env, client, sent):
     assert "Emma" in payload
 
     # Idempotent: a second poke sends nothing.
-    assert push.dispatch(conn, due) == {"processed": 0, "sent": 0}
+    assert push.dispatch(conn, due) == {"processed": 0, "sent": 0,
+                                        "lunch_check_sent": 0}
     conn.close()
 
 
@@ -87,7 +88,7 @@ def test_stale_reminders_marked_not_sent(env, client, sent):
     })
     late = datetime.combine(today, datetime.strptime("12:00", "%H:%M").time())
     out = push.dispatch(conn, late)
-    assert out == {"processed": 1, "sent": 0}
+    assert out == {"processed": 1, "sent": 0, "lunch_check_sent": 0}
     conn.close()
 
 
@@ -129,3 +130,120 @@ def test_quick_add_carries_reminder(env, client):
     ev = conn.execute("SELECT * FROM events WHERE title = 'Dentist'").fetchone()
     assert ev["reminder_minutes"] == 60
     conn.close()
+
+
+SARAH_SUB = {"endpoint": "https://push.example/sarah",
+             "keys": {"p256dh": "P", "auth": "A"}}
+
+
+def test_new_event_notifies_other_parents(env, client, sent):
+    do_setup(client)
+    conn = db.connect()
+    client.post("/push/subscribe", json=SUB)  # Dylan's device
+    sarah = join(env, conn, "Sarah", "sarahpass")
+    sarah.post("/push/subscribe", json=SARAH_SUB)
+    client.post("/events/new", data={
+        "title": "Book fair", "category": "school",
+        "date": date.today().isoformat(), "start_time": "09:00"})
+    endpoints = {info["endpoint"] for info, _ in sent}
+    # Everyone but the creator hears about it.
+    assert SARAH_SUB["endpoint"] in endpoints
+    assert SUB["endpoint"] not in endpoints
+    payload = sent[0][1]
+    assert "Dylan added an event" in payload and "Book fair" in payload
+
+
+def test_notification_prefs_respected(env, client, sent):
+    do_setup(client)
+    conn = db.connect()
+    sarah = join(env, conn, "Sarah", "sarahpass")
+    sarah.post("/push/subscribe", json=SARAH_SUB)
+    # Sarah keeps reminders but mutes new-event pushes.
+    sarah.post("/settings/notifications", data={"reminders": "on"})
+    db.invalidate_memo(conn)
+    prefs = push.prefs(conn, parent_id(conn, "Sarah"))
+    assert prefs["reminders"] is True and prefs["new_events"] is False
+    client.post("/events/new", data={
+        "title": "Muted thing", "category": "other",
+        "date": date.today().isoformat(), "start_time": "09:00"})
+    assert sent == []
+
+
+def test_swap_request_and_decision_notify(env, client, sent):
+    do_setup(client)
+    conn = db.connect()
+    client.post("/push/subscribe", json=SUB)  # Dylan
+    sarah = join(env, conn, "Sarah", "sarahpass")
+    sarah.post("/push/subscribe", json=SARAH_SUB)
+    start = (date.today() + timedelta(days=14)).isoformat()
+    r = client.post("/swaps/new", data={
+        "circle_id": "1", "range1_start": start, "range1_end": start,
+        "range1_parent": str(parent_id(conn, "Sarah")),
+        "reason": "Work trip"}, follow_redirects=False)
+    assert r.status_code == 303
+    swap_id = r.headers["location"].rsplit("/", 1)[1]
+    # The other co-parent hears about the request; the requester doesn't.
+    assert {info["endpoint"] for info, _ in sent} == {SARAH_SUB["endpoint"]}
+    assert "swap" in sent[0][1].lower()
+    sent.clear()
+    sarah.post(f"/swaps/{swap_id}/decide", data={"decision": "approved"})
+    # The requester hears the decision.
+    assert {info["endpoint"] for info, _ in sent} == {SUB["endpoint"]}
+    assert "approved" in sent[0][1]
+
+
+def test_message_notifies_audience(env, client, sent):
+    do_setup(client)
+    conn = db.connect()
+    client.post("/push/subscribe", json=SUB)  # Dylan
+    sarah = join(env, conn, "Sarah", "sarahpass")
+    sarah.post("/push/subscribe", json=SARAH_SUB)
+    r = client.post("/messages/new", data={
+        "subject": "Shoes", "body": "Nora needs new sneakers"},
+        follow_redirects=False)
+    thread_id = r.headers["location"].rsplit("/", 1)[1]
+    assert {info["endpoint"] for info, _ in sent} == {SARAH_SUB["endpoint"]}
+    assert "sneakers" in sent[0][1]
+    sent.clear()
+    sarah.post(f"/messages/{thread_id}/reply", data={"body": "On it"})
+    assert {info["endpoint"] for info, _ in sent} == {SUB["endpoint"]}
+
+
+def test_evening_lunch_check(env, client, sent):
+    do_setup(client)
+    conn = db.connect()
+    client.post("/push/subscribe", json=SUB)  # Dylan — circle 1 custodian
+    import json as _json
+    from datetime import datetime as _dt
+    today = date.today()
+    tomorrow = today + timedelta(days=1)
+    db.set_setting(conn, "lunch_menus", _json.dumps(
+        [{"label": "Washington", "url": "https://example.com/menu.pdf"}]))
+    for d in (today, tomorrow):
+        db.set_setting(
+            conn, f"lunch_cache:0:{d.year}-{d.month:02d}",
+            _json.dumps({"at": _dt.utcnow().timestamp(),
+                         "days": {tomorrow.isoformat(): "Tacos, Corn"}}))
+    emma = conn.execute("SELECT id FROM kids WHERE name='Emma'").fetchone()["id"]
+    conn.execute("INSERT INTO lunch_choices(kid_id, date, choice) "
+                 "VALUES(?, ?, 'pack')", (emma, tomorrow.isoformat()))
+    conn.commit()
+    db.invalidate_memo(conn)
+
+    # Before 7pm: nothing, and the day is not claimed.
+    early = datetime.combine(today, datetime.strptime("18:00", "%H:%M").time())
+    assert push.dispatch(conn, early)["lunch_check_sent"] == 0
+    assert sent == []
+
+    due = datetime.combine(today, datetime.strptime("19:05", "%H:%M").time())
+    out = push.dispatch(conn, due)
+    assert out["lunch_check_sent"] >= 1
+    payload = sent[0][1]
+    # Emma chose Pack; Ava (same circle) never answered.
+    assert "Pack tonight" in payload and "Emma" in payload
+    assert "No answer yet" in payload and "Ava" in payload
+
+    # Once per evening.
+    sent.clear()
+    assert push.dispatch(conn, due)["lunch_check_sent"] == 0
+    assert sent == []

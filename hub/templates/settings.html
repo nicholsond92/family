@@ -174,19 +174,28 @@
   </form>
 </div>
 
-<div class="card">
+<div class="card" id="notifications">
   <h2>Notifications</h2>
-  <p class="muted small" style="margin:0 0 0.6rem">Get a push notification on this
-  device when an event's reminder comes due (set a reminder when adding or editing
-  an event). On iPhone, first add the hub to your Home Screen (Share →
-  Add to Home Screen) and enable from inside the installed app — Apple only allows
-  notifications for installed apps.</p>
+  <p class="muted small" style="margin:0 0 0.6rem">Push notifications arrive on
+  every device you've enabled below. On iPhone, first add the hub to your Home
+  Screen (Share → Add to Home Screen) and enable from inside the installed
+  app — Apple only allows notifications for installed apps.</p>
   <div class="row">
     <button class="btn primary" type="button" id="pushEnable">Enable on this device</button>
     <button class="btn" type="button" id="pushTest">Send a test</button>
     <button class="btn" type="button" id="pushDisable">Disable</button>
   </div>
   <p class="muted small" id="pushStatus" style="margin:0.5rem 0 0"></p>
+  <form method="post" action="/settings/notifications" class="stack" style="margin-top:0.9rem">
+    <strong class="small">What you get notified about</strong>
+    {% for key, label in notify_pref_keys %}
+    <label style="display:flex; flex-direction:row; align-items:center; align-self:flex-start; justify-content:flex-start; gap:0.5rem; margin:0.15rem 0">
+      <input type="checkbox" name="{{ key }}" {% if notify_prefs[key] %}checked{% endif %} style="width:auto; margin:0">
+      {{ label }}
+    </label>
+    {% endfor %}
+    <div><button class="btn" type="submit">Save notification choices</button></div>
+  </form>
 </div>
 
 <script>

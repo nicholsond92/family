@@ -22,6 +22,42 @@ from . import db
 GRACE = timedelta(minutes=30)
 # All-day events with a reminder notify at this local time.
 ALLDAY_AT = "07:00"
+# The evening lunch check (who still needs a lunch packed) fires at this
+# household-local time.
+LUNCH_CHECK_AT = "19:00"
+
+# Notification categories, each toggleable per adult in Settings.
+PREF_KEYS = [
+    ("reminders", "Event reminders I asked for"),
+    ("new_events", "Events other people add"),
+    ("swaps", "Custody swap requests & decisions"),
+    ("messages", "New messages"),
+    ("lunch_check", "Evening lunch check (who needs one packed)"),
+]
+
+
+def prefs(conn, parent_id: int) -> dict:
+    """This adult's notification toggles; anything unset defaults to on."""
+    raw = db.get_setting(conn, f"notify_prefs:{parent_id}", "") or ""
+    try:
+        stored = json.loads(raw)
+    except ValueError:
+        stored = {}
+    return {key: bool(stored.get(key, True)) for key, _ in PREF_KEYS}
+
+
+def set_prefs(conn, parent_id: int, enabled: set[str]) -> None:
+    db.set_setting(
+        conn, f"notify_prefs:{parent_id}",
+        json.dumps({key: key in enabled for key, _ in PREF_KEYS}),
+    )
+    conn.commit()
+
+
+def notify(conn, parent_ids: set[int], category: str, payload: dict) -> int:
+    """send_to_parents, minus anyone who turned this category off."""
+    ids = {pid for pid in parent_ids if prefs(conn, pid).get(category, True)}
+    return send_to_parents(conn, ids, payload)
 
 REMINDER_CHOICES = [
     ("", "No reminder"),
@@ -183,8 +219,70 @@ def dispatch(conn, now: datetime) -> dict:
         body = f"{ev['title']} {when}"
         if kid_names:
             body += " · " + ", ".join(kid_names)
-        sent_total += send_to_parents(
-            conn, event_notify_parents(conn, ev),
+        sent_total += notify(
+            conn, event_notify_parents(conn, ev), "reminders",
             {"title": "Family Hub", "body": body, "url": "/"},
         )
-    return {"processed": events_done, "sent": sent_total}
+    lunch_sent = _lunch_check(conn, now)
+    return {"processed": events_done, "sent": sent_total,
+            "lunch_check_sent": lunch_sent}
+
+
+def _lunch_check(conn, now: datetime) -> int:
+    """Once each evening: tell whoever has each kid tonight which lunches
+    still need packing for tomorrow (chose Pack, or hasn't answered).
+    Kids who picked School lunch are skipped; a night where everyone picked
+    School sends nothing."""
+    from . import custody, lunch  # late import — lunch pulls in fetchers
+
+    today = now.date()
+    check_at = datetime.strptime(
+        f"{today.isoformat()} {LUNCH_CHECK_AT}", "%Y-%m-%d %H:%M"
+    ).replace(tzinfo=now.tzinfo)
+    if now < check_at or now - check_at > GRACE:
+        return 0
+    if db.get_setting(conn, "lunch_check_sent") == today.isoformat():
+        return 0
+    # Claim the day before sending so a concurrent poke can't double-send.
+    db.set_setting(conn, "lunch_check_sent", today.isoformat())
+    conn.commit()
+    tomorrow = today + timedelta(days=1)
+    if not lunch.lunches_for(conn, [tomorrow]).get(tomorrow.isoformat()):
+        return 0  # no school lunch tomorrow — nothing to decide
+    choices = {
+        r["kid_id"]: r["choice"] for r in conn.execute(
+            "SELECT kid_id, choice FROM lunch_choices WHERE date = ?",
+            (tomorrow.isoformat(),),
+        ).fetchall()
+    }
+    per_parent: dict[int, dict[str, list[str]]] = {}
+    for kid in conn.execute("SELECT * FROM kids ORDER BY name").fetchall():
+        choice = choices.get(kid["id"])
+        if choice == "school":
+            continue
+        bucket = "pack" if choice == "pack" else "open"
+        # Tonight's custodian packs; without a schedule, both co-parents hear.
+        who = custody.custodian_on(conn, kid["circle_id"], today)
+        pids = [who] if who else [
+            r["parent_id"] for r in conn.execute(
+                "SELECT parent_id FROM circle_parents WHERE circle_id = ?",
+                (kid["circle_id"],),
+            ).fetchall()
+        ]
+        first = kid["name"].split()[0]
+        for pid in pids:
+            per_parent.setdefault(pid, {"pack": [], "open": []})[bucket] \
+                .append(first)
+    sent = 0
+    for pid, buckets in per_parent.items():
+        parts = []
+        if buckets["pack"]:
+            parts.append("Pack tonight: " + ", ".join(buckets["pack"]))
+        if buckets["open"]:
+            parts.append("No answer yet: " + ", ".join(buckets["open"]))
+        sent += notify(
+            conn, {pid}, "lunch_check",
+            {"title": "Lunch check 🥪", "body": " · ".join(parts),
+             "url": "/display?view=tasks"},
+        )
+    return sent
