@@ -2,7 +2,20 @@
 {% block content %}
 <h1>Settings</h1>
 
-<div class="card">
+<nav class="jumpnav">
+  <a href="#household">Household</a>
+  <a href="#adults">Adults</a>
+  <a href="#kids">Kids</a>
+  <a href="#custody">Custody</a>
+  <a href="#notifications">Notifications</a>
+  <a href="#tasks">Tasks</a>
+  <a href="#lunch">Lunch menus</a>
+  <a href="#routines">Routines</a>
+  <a href="#import">Import events</a>
+  <a href="#appearance">Appearance</a>
+</nav>
+
+<div class="card" id="household">
   <h2>Household</h2>
   <form method="post" action="/settings/household" class="stack">
     <div class="grid2">
@@ -32,7 +45,7 @@
   </form>
 </div>
 
-<div class="card">
+<div class="card" id="lunch">
   <h2>School lunch menus</h2>
   <p class="muted small" style="margin:0 0 0.6rem">Shown on the wall display under each
   school day. On <a href="https://menus.healthepro.com" target="_blank">menus.healthepro.com</a>,
@@ -75,7 +88,7 @@
   </form>
 </div>
 
-<div class="card">
+<div class="card" id="import">
   <h2>Import events</h2>
   {% if request.query_params.get('imported') is not none %}
   <p class="notice">Imported {{ request.query_params.get('imported') }} event(s),
@@ -116,7 +129,7 @@
   </form>
 </div>
 
-<div class="card">
+<div class="card" id="routines">
   <h2>Daily routines</h2>
   <p class="muted small" style="margin:0 0 0.6rem">Recurring reminders on the wall
   display's Today view that follow the custody schedule — e.g. "picks up the girls
@@ -269,7 +282,7 @@
 })();
 </script>
 
-<div class="card">
+<div class="card" id="tasks">
   <h2>Tasks &amp; rewards</h2>
   <p class="muted small" style="margin:0 0 0.6rem">Daily checklists the kids tap off on
   the wall display's Tasks tab — brush teeth, make the bed, feed the cat. Each check
@@ -348,7 +361,7 @@
   </form>
 </div>
 
-<div class="card">
+<div class="card" id="appearance">
   <h2>Appearance</h2>
   <form method="post" action="/settings/appearance" class="row">
     <label>My theme
@@ -400,7 +413,7 @@
   </form>
 </div>
 
-<div class="card">
+<div class="card" id="adults">
   <h2>Adults</h2>
   <p class="muted small" style="margin:0 0 0.5rem">Invite links are never sent
   automatically — share one only when you're ready. (Tip: you can open a link in a
@@ -448,7 +461,7 @@
   </form>
 </div>
 
-<div class="card">
+<div class="card" id="kids">
   <h2>Kids</h2>
   {% for k in kids %}
   <div class="feedrow">
@@ -497,7 +510,7 @@
 </div>
 
 {% for c in circle_rows %}
-<div class="card">
+<div class="card" {% if loop.first %}id="custody"{% endif %}>
   <h2>Custody — {{ c.name }}{% if c.label %} <span class="muted small">({{ c.label }})</span>{% endif %}</h2>
   {% if c.schedule %}
   <p>Current pattern: <strong>{{ patterns[c.schedule.pattern] }}</strong>,
