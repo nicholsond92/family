@@ -837,7 +837,15 @@ a.dtab { text-decoration: none; }
   /* Lock the shell: only the content pane scrolls, so the tab bar never
      moves and the page never rubber-bands. */
   html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
-  .dshell { flex-direction: column-reverse; height: 100dvh; min-height: 0; }
+  /* Keep everything below the status bar / Dynamic Island: the safe-area
+     pad lives on the shell (not the scroll container), so scrolled content
+     clips there instead of sliding up under the clock. */
+  .dshell {
+    flex-direction: column-reverse;
+    height: 100dvh;
+    min-height: 0;
+    padding-top: env(safe-area-inset-top);
+  }
   /* Outlook-style bottom bar: tabs share the width evenly, roomy padding,
      and the active tab is tinted rather than boxed in a pill. */
   .drail {
@@ -867,8 +875,7 @@ a.dtab { text-decoration: none; }
   .dtab.active { font-weight: 800; }
   .dadd { margin-top: 0; }
   .dmain {
-    /* viewport-fit=cover pulls the page under the status bar; pad back out. */
-    padding: calc(10px + env(safe-area-inset-top)) 14px 12px;
+    padding: 14px 14px 12px;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
