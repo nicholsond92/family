@@ -2244,6 +2244,15 @@ def create_app() -> FastAPI:
             members = circle_members(conn).get(circle_id, [])
             if not members:
                 circle_id = 0
+            # Same rule as editing a schedule: only that circle's co-parents
+            # (or the household admin) may change what drives its custody.
+            me = current_parent(request, conn)
+            allowed = set(my_circle_ids(conn, me["id"]))
+            touched = {c for c in (circle_id, sub["custody_circle_id"]) if c}
+            if not is_admin(conn, me["id"]) and not touched <= allowed:
+                return HTMLResponse(
+                    "Only that circle's co-parents (or the household admin) can "
+                    "change what sets its custody.", status_code=403)
             keywords = {
                 str(p["id"]): (form.get(f"keywords_{p['id']}") or "").strip()[:200]
                 for p in members

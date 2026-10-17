@@ -293,3 +293,23 @@ def test_custody_calendar_sets_custody_days(env, client, monkeypatch):  # noqa: 
     assert conn.execute("SELECT COUNT(*) AS n FROM custody_overrides "
                         "WHERE source_id = ?", (sub_id,)).fetchone()["n"] == 0
     conn.close()
+
+
+def test_custody_calendar_needs_circle_membership(env, client, monkeypatch):  # noqa: F811
+    from test_app import join
+    do_setup(client)
+    _, body = _custody_ics()
+    monkeypatch.setattr(calendars, "fetch", lambda url: body)
+    client.post("/settings/calendars/add",
+                data={"name": "Custody", "url": "https://x/c.ics"})
+    conn = db.connect()
+    sub_id = conn.execute("SELECT id FROM calendar_subscriptions").fetchone()["id"]
+    circle1 = conn.execute(
+        "SELECT circle_id FROM kids WHERE name = 'Emma'").fetchone()["circle_id"]
+    mark = join(env, conn, "Mark", "markpass1")  # circle 2 only, not admin
+    r = mark.post(f"/settings/calendars/{sub_id}/custody",
+                  data={"custody_circle_id": str(circle1)})
+    assert r.status_code == 403
+    assert conn.execute("SELECT custody_circle_id FROM calendar_subscriptions"
+                        ).fetchone()["custody_circle_id"] is None
+    conn.close()
