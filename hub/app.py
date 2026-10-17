@@ -1087,8 +1087,19 @@ def create_app() -> FastAPI:
         """Mirror an edit/delete of a synced event to its source calendar.
         Returns an error response, or None when it's fine to go ahead."""
         sub = _event_source(conn, ev)
-        if not calendars.writable(sub) or not ev["source_uid"]:
+        if not calendars.writable(sub):
             return None
+        if not ev["source_uid"]:
+            # Copied in before UIDs were stored: can't be matched in Google.
+            return HTMLResponse(
+                "<div style='font-family:sans-serif;max-width:600px;margin:2rem auto'>"
+                f"<h1>Sync {html.escape(sub['name'])} first</h1>"
+                "<p>This event was copied in before changes could be saved back "
+                "to Google. Click <b>Sync now</b> for this calendar in Settings → "
+                "Shared calendars, then make the change again.</p>"
+                "<p>Nothing was changed.</p>"
+                "<p><a href='/settings#calendars'>Go to Shared calendars</a></p></div>",
+                status_code=409)
         try:
             new_uid = calendars.push_change(sub, action, ev["source_uid"],
                                             fields, hub_tz(conn))

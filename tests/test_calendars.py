@@ -206,3 +206,22 @@ def test_push_change_payload():
         raise AssertionError("expected ValueError")
     except ValueError as exc:
         assert str(exc) == "nope"
+
+
+def test_edit_without_uid_asks_for_sync(env, client, monkeypatch):  # noqa: F811
+    do_setup(client)
+    monkeypatch.setattr(calendars, "fetch", lambda url: _ics())
+    client.post("/settings/calendars/add", data={
+        "name": "Bridge",
+        "url": "https://script.google.com/macros/s/X/exec?key=k&id=c"})
+    conn = db.connect()
+    conn.execute("UPDATE events SET source_uid = NULL")
+    conn.commit()
+    ev = conn.execute("SELECT * FROM events WHERE title = 'Camping trip'").fetchone()
+    r = client.post(f"/events/{ev['id']}/edit",
+                    data={"title": "Changed", "date": ev["date"], "all_day": "on"})
+    assert r.status_code == 409
+    assert "Sync now" in r.text
+    assert conn.execute("SELECT title FROM events WHERE id = ?",
+                        (ev["id"],)).fetchone()["title"] == "Camping trip"
+    conn.close()
