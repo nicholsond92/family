@@ -186,7 +186,8 @@ def apply_swap_overrides(conn, swap) -> None:
                 "INSERT INTO custody_overrides(circle_id, date, parent_id, swap_id) "
                 "VALUES(?, ?, ?, ?) "
                 "ON CONFLICT(circle_id, date) DO UPDATE SET "
-                "parent_id = excluded.parent_id, swap_id = excluded.swap_id",
+                "parent_id = excluded.parent_id, swap_id = excluded.swap_id, "
+                "source_id = NULL",
                 (swap["circle_id"], d.isoformat(), parent_id, swap["id"]),
             )
             d += timedelta(days=1)

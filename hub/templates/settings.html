@@ -106,8 +106,35 @@
       <span class="muted small">· {{ c['category'] }}{% if c['private'] %} · private{% endif %}
         {% for k in kids %}{% if k['id']|string in (c['kid_ids'] or '').split(',') %} · {{ k['name'] }}{% endif %}{% endfor %}
         {% if c['last_error'] %}<br><span class="error">Last sync failed: {{ c['last_error'] }}</span>
+        {% elif c['last_synced'] and c['custody_circle_id'] %} · sets custody on {{ c['last_count'] }} day(s)
         {% elif c['last_synced'] %} · {{ c['last_count'] }} event(s) synced{% endif %}
+        {% if c['last_note'] %}<br><span class="error">{{ c['last_note'] }}</span>{% endif %}
       </span>
+      <details{% if c['custody_circle_id'] %} open{% endif %}>
+        <summary class="small">Use as a custody calendar</summary>
+        <form method="post" action="/settings/calendars/{{ c['id'] }}/custody" class="stack">
+          <p class="muted small" style="margin:0">Each event's title says whose time it is —
+          it sets that day's custody pill instead of showing as an event. Days the
+          calendar doesn't cover follow the regular schedule; approved swaps still win.</p>
+          <label>Custody for
+            <select name="custody_circle_id">
+              <option value="0">— not a custody calendar —</option>
+              {% for cr in circle_rows %}
+              <option value="{{ cr.id }}" {% if c['custody_circle_id'] == cr.id %}selected{% endif %}>{{ cr.label or cr.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          {% for cr in circle_rows %}{% if c['custody_circle_id'] == cr.id %}
+          {% for m in cr.members %}
+          <label>Events mentioning (comma-separated) mean {{ m['name'] | first_name }} has them
+            <input name="keywords_{{ m['id'] }}"
+                   value="{{ ', '.join(calendar_custody_words[c['id']][m['id']]) }}">
+          </label>
+          {% endfor %}
+          {% endif %}{% endfor %}
+          <div class="row"><button class="btn" type="submit">Save</button></div>
+        </form>
+      </details>
     </div>
     <div class="row">
       <form method="post" action="/settings/calendars/{{ c['id'] }}/sync">

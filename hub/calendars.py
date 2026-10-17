@@ -12,7 +12,9 @@ also writable: edits and deletes made in the hub are posted back to that
 script, which applies them to the Google calendar as the adult who owns it.
 """
 
-from datetime import date, datetime, timedelta
+import json
+import re
+from datetime import date, datetime, time, timedelta
 from urllib.parse import quote, urlsplit
 
 import requests
@@ -112,6 +114,7 @@ def parse(ics: bytes, start: date, end: date, tz=None) -> list[dict]:
             while d <= last:
                 if start <= d <= end:
                     out.append({**base, "date": d.isoformat(), "all_day": 1,
+                                "last_date": d.isoformat(),
                                 "start_time": None, "end_time": None})
                 d += timedelta(days=1)
             continue
@@ -119,9 +122,16 @@ def parse(ics: bytes, start: date, end: date, tz=None) -> list[dict]:
         e = _local(dtend, tz) if isinstance(dtend, datetime) else None
         if not start <= s.date() <= end:
             continue
+        # Last day a multi-day stay covers: ending before noon means the
+        # kids left that morning, so that day isn't counted.
+        last = s.date()
+        if e and e.date() > s.date():
+            last = e.date() if e.time() >= time(12) else e.date() - timedelta(days=1)
+            last = max(last, s.date())
         out.append({
             **base,
             "date": s.date().isoformat(),
+            "last_date": last.isoformat(),
             "all_day": 0,
             "start_time": s.strftime("%H:%M"),
             # Overnight events keep their start day; the end time would lie.
@@ -163,6 +173,8 @@ def sync(conn, sub, tz=None, today: date | None = None,
     if not conn.execute("SELECT id FROM calendar_subscriptions WHERE id = ?",
                         (sub["id"],)).fetchone():
         return 0
+    if sub["custody_circle_id"]:
+        return _sync_custody(conn, sub, rows, now)
     conn.execute("DELETE FROM events WHERE source_id = ?", (sub["id"],))
     # kid_ids is a plain list, so skip kids removed since it was saved.
     existing = {r["id"] for r in conn.execute("SELECT id FROM kids")}
@@ -184,7 +196,8 @@ def sync(conn, sub, tz=None, today: date | None = None,
                 (event_id, kid_id))
     conn.execute(
         "UPDATE calendar_subscriptions SET last_synced = ?, last_error = NULL, "
-        "last_count = ? WHERE id = ?", (now, len(rows), sub["id"]))
+        "last_count = ?, last_note = NULL WHERE id = ?",
+        (now, len(rows), sub["id"]))
     conn.commit()
     return len(rows)
 
@@ -258,3 +271,69 @@ def push_change(sub, action: str, uid: str, fields: dict | None = None,
         err = result.get("error") if isinstance(result, dict) else None
         raise ValueError(err or "Google rejected the change")
     return result.get("uid") or uid
+
+
+def custody_keywords(sub, members) -> dict[int, list[str]]:
+    """parent id -> lowercase words that mark an event as that adult's time.
+    Defaults to each adult's first name."""
+    try:
+        saved = json.loads(sub["custody_keywords"] or "{}")
+    except ValueError:
+        saved = {}
+    out = {}
+    for p in members:
+        raw = saved.get(str(p["id"])) or p["name"].split()[0]
+        out[p["id"]] = [w.strip().lower() for w in raw.split(",") if w.strip()]
+    return out
+
+
+def match_parent(title: str, keywords: dict[int, list[str]]) -> int | None:
+    """The one adult whose keyword appears in the title, else None."""
+    text = title.lower()
+    hits = {pid for pid, words in keywords.items()
+            if any(re.search(rf"\b{re.escape(w)}\b", text) for w in words)}
+    return hits.pop() if len(hits) == 1 else None
+
+
+def _sync_custody(conn, sub, rows, now) -> int:
+    """Turn a custody calendar's events into custody days for its circle.
+    Days the calendar doesn't cover follow the regular schedule; approved
+    swaps keep precedence."""
+    circle_id = sub["custody_circle_id"]
+    members = [r for r in conn.execute(
+        "SELECT p.* FROM parents p JOIN circle_parents cp ON cp.parent_id = p.id "
+        "WHERE cp.circle_id = ? ORDER BY p.id", (circle_id,))]
+    keywords = custody_keywords(sub, members)
+    days: dict[str, tuple[int, str]] = {}
+    unmatched: list[str] = []
+    for r in rows:
+        parent_id = match_parent(r["title"], keywords)
+        if parent_id is None:
+            if r["title"] not in unmatched:
+                unmatched.append(r["title"])
+            continue
+        d = date.fromisoformat(r["date"])
+        last = date.fromisoformat(r.get("last_date") or r["date"])
+        while d <= last:
+            days[d.isoformat()] = (parent_id, r["title"][:200])
+            d += timedelta(days=1)
+    conn.execute("DELETE FROM events WHERE source_id = ?", (sub["id"],))
+    conn.execute("DELETE FROM custody_overrides WHERE source_id = ?", (sub["id"],))
+    for iso, (parent_id, title) in sorted(days.items()):
+        conn.execute(
+            "INSERT INTO custody_overrides(circle_id, date, parent_id, swap_id, "
+            "note, source_id) VALUES(?, ?, ?, NULL, ?, ?) "
+            "ON CONFLICT(circle_id, date) DO NOTHING",
+            (circle_id, iso, parent_id, title, sub["id"]))
+    note = None
+    if unmatched:
+        shown = ", ".join(f"“{t}”" for t in unmatched[:3])
+        more = f" and {len(unmatched) - 3} more" if len(unmatched) > 3 else ""
+        note = f"Couldn't tell whose time these are: {shown}{more}"
+    conn.execute(
+        "UPDATE calendar_subscriptions SET last_synced = ?, last_error = NULL, "
+        "last_count = ?, last_note = ? WHERE id = ?",
+        (now, len(days), note, sub["id"]))
+    conn.commit()
+    db.invalidate_memo(conn)
+    return len(days)
