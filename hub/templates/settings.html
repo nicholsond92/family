@@ -11,6 +11,7 @@
   <a href="#tasks">Tasks</a>
   <a href="#lunch">Lunch menus</a>
   <a href="#routines">Routines</a>
+  <a href="#calendars">Shared calendars</a>
   <a href="#import">Import events</a>
   <a href="#appearance">Appearance</a>
 </nav>
@@ -85,6 +86,71 @@
       <button class="btn" type="submit">Save lunch menus</button>
       {% if lunch_menus %}<a class="btn" href="/settings/lunch/test">Test the connection</a>{% endif %}
     </div>
+  </form>
+</div>
+
+<div class="card" id="calendars">
+  <h2>Shared calendars</h2>
+  <p class="muted small" style="margin:0 0 0.6rem">Pull in a calendar someone shares with
+  you — a co-parent's Google, Outlook, or iCloud calendar. Paste its iCal address (for
+  Google: Settings → the calendar → Integrate calendar → <em>Secret address in iCal
+  format</em>). Its events show up here and stay in sync; changes come from the source
+  calendar, so edits made here are replaced on the next sync.</p>
+  {% if request.query_params.get('calendar_error') %}
+  <p class="error">That doesn't look like a calendar link — paste the full iCal address.</p>
+  {% endif %}
+  {% for c in calendar_subs %}
+  <div class="feedrow">
+    <div>
+      <strong>{{ c['name'] }}</strong>
+      <span class="muted small">· {{ c['category'] }}{% if c['private'] %} · private{% endif %}
+        {% for k in kids %}{% if k['id']|string in (c['kid_ids'] or '').split(',') %} · {{ k['name'] }}{% endif %}{% endfor %}
+        {% if c['last_error'] %}<br><span class="error">Last sync failed: {{ c['last_error'] }}</span>
+        {% elif c['last_synced'] %} · {{ c['last_count'] }} event(s) synced{% endif %}
+      </span>
+    </div>
+    <div class="row">
+      <form method="post" action="/settings/calendars/{{ c['id'] }}/sync">
+        <button class="btn" type="submit">Sync now</button>
+      </form>
+      <form method="post" action="/settings/calendars/{{ c['id'] }}/delete">
+        <button class="btn danger" type="submit">Remove</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+  <form method="post" action="/settings/calendars/add" class="stack">
+    <div class="grid2">
+      <label>Name
+        <input name="name" placeholder="Garrett's calendar" required>
+      </label>
+      <label>iCal address
+        <input name="url" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" required>
+      </label>
+    </div>
+    <div class="grid2">
+      <label>Category
+        <select name="category">
+          {% for c in categories %}
+          <option value="{{ c }}" {% if c == 'other' %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <fieldset>
+        <legend>These events are for</legend>
+        <div class="kidchecks">
+          {% for k in kids %}
+          <label class="checkline">
+            <input type="checkbox" name="kid_ids" value="{{ k['id'] }}"> {{ k['name'] }}
+          </label>
+          {% endfor %}
+        </div>
+      </fieldset>
+    </div>
+    <label class="checkline">
+      <input type="checkbox" name="private"> Private (only these kids' co-parents see details)
+    </label>
+    <div class="row"><button class="btn" type="submit">Add calendar</button></div>
   </form>
 </div>
 

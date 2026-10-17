@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import custody, db, feeds, lunch, push, security
+from . import calendars, custody, db, feeds, lunch, push, security
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -927,6 +927,7 @@ def create_app() -> FastAPI:
             if redirect:
                 return redirect
             me = current_parent(request, conn)
+            calendars.refresh_due(conn, hub_tz(conn), hub_today(conn))
             week_start = custody.monday_of(
                 date.fromisoformat(start) if start else hub_today(conn)
             )
@@ -1624,6 +1625,7 @@ def create_app() -> FastAPI:
             feed = conn.execute("SELECT * FROM feeds WHERE token = ?", (token,)).fetchone()
             if not feed:
                 return Response("Not found", status_code=404)
+            calendars.refresh_due(conn, hub_tz(conn), hub_today(conn))
             body = feeds.generate_feed(conn, feed)
             return Response(
                 content=body,
@@ -1652,6 +1654,7 @@ def create_app() -> FastAPI:
                     status_code=403,
                 )
             today = hub_today(conn)
+            calendars.refresh_due(conn, hub_tz(conn), today)
             week_start = custody.monday_of(today)
             # The wall display is shared: private events always render as Busy.
             ctx = week_context(conn, week_start, None, today)
@@ -1873,6 +1876,7 @@ def create_app() -> FastAPI:
                 task_rewards=task_rewards(conn),
                 task_sections=TASK_SECTIONS,
                 lunch_menus=lunch.get_menus(conn),
+                calendar_subs=calendars.subscriptions(conn),
                 lunch_ignore=(
                     db.get_setting(conn, "lunch_ignore")
                     if db.get_setting(conn, "lunch_ignore") is not None
@@ -2116,6 +2120,73 @@ def create_app() -> FastAPI:
                 "<h1>Lunch menu test</h1>" + body +
                 "<p><a href='/settings'>Back to settings</a></p></div>"
             )
+        finally:
+            conn.close()
+
+    @app.post("/settings/calendars/add")
+    async def settings_calendar_add(request: Request):
+        """Subscribe to a co-parent's shared calendar (iCal URL or a public
+        Google Calendar ID). Synced right away, then refreshed on page loads."""
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            me = current_parent(request, conn)
+            form = await request.form()
+            url = calendars.normalize_url(form.get("url") or "")
+            if not url:
+                return RedirectResponse("/settings?calendar_error=url#calendars",
+                                        status_code=303)
+            valid_kids = {k["id"] for k in kids(conn)}
+            kid_ids = [k for k in (int(x) for x in form.getlist("kid_ids"))
+                       if k in valid_kids]
+            category = (form.get("category")
+                        if form.get("category") in CATEGORIES else "other")
+            name = (form.get("name") or "").strip()[:80] or "Shared calendar"
+            sub_id = db.insert_id(
+                conn,
+                "INSERT INTO calendar_subscriptions(name, url, kid_ids, "
+                "category, private, created_by) VALUES(?, ?, ?, ?, ?, ?)",
+                (name, url, ",".join(str(k) for k in kid_ids), category,
+                 1 if form.get("private") else 0, me["id"]),
+            )
+            conn.commit()
+            sub = conn.execute("SELECT * FROM calendar_subscriptions "
+                               "WHERE id = ?", (sub_id,)).fetchone()
+            calendars.sync(conn, sub, hub_tz(conn), hub_today(conn))
+            return RedirectResponse("/settings#calendars", status_code=303)
+        finally:
+            conn.close()
+
+    @app.post("/settings/calendars/{sub_id}/sync")
+    def settings_calendar_sync(request: Request, sub_id: int):
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            sub = conn.execute("SELECT * FROM calendar_subscriptions "
+                               "WHERE id = ?", (sub_id,)).fetchone()
+            if sub:
+                calendars.sync(conn, sub, hub_tz(conn), hub_today(conn))
+            return RedirectResponse("/settings#calendars", status_code=303)
+        finally:
+            conn.close()
+
+    @app.post("/settings/calendars/{sub_id}/delete")
+    def settings_calendar_delete(request: Request, sub_id: int):
+        """Unsubscribe and remove every event copied from that calendar."""
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            conn.execute("DELETE FROM events WHERE source_id = ?", (sub_id,))
+            conn.execute("DELETE FROM calendar_subscriptions WHERE id = ?",
+                         (sub_id,))
+            conn.commit()
+            return RedirectResponse("/settings#calendars", status_code=303)
         finally:
             conn.close()
 
