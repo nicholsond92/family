@@ -6,6 +6,10 @@ lunch menus refresh) the feed is fetched and its events are copied into the
 `events` table, tagged with ``source_id`` so the next sync can replace them.
 Copying keeps everything downstream — the calendar, the wall display, the
 outgoing .ics feeds, privacy masking — working without special cases.
+
+Feeds served by the Google Apps Script bridge (google-calendar-feed.gs) are
+also writable: edits and deletes made in the hub are posted back to that
+script, which applies them to the Google calendar as the adult who owns it.
 """
 
 from datetime import date, datetime, timedelta
@@ -168,11 +172,11 @@ def sync(conn, sub, tz=None, today: date | None = None,
             conn,
             "INSERT INTO events(title, category, date, start_time, end_time, "
             "all_day, location, notes, private, series_id, created_by, "
-            "created_at, source_id) "
-            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
+            "created_at, source_id, source_uid) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)",
             (r["title"], sub["category"], r["date"], r["start_time"],
              r["end_time"], r["all_day"], r["location"], r["notes"],
-             sub["private"], sub["created_by"], now, sub["id"]),
+             sub["private"], sub["created_by"], now, sub["id"], r["uid"]),
         )
         for kid_id in kid_ids:
             conn.execute(
@@ -204,3 +208,53 @@ def refresh_due(conn, tz=None, today: date | None = None) -> None:
     for sub in subs:
         if _due(sub):
             sync(conn, sub, tz, today)
+
+
+def writable(sub) -> bool:
+    """True for feeds from the Apps Script bridge, which accepts edits."""
+    return bool(sub) and "script.google.com/macros/" in (sub["url"] or "")
+
+
+def push_change(sub, action: str, uid: str, fields: dict | None = None,
+                tz=None, poster=None) -> str:
+    """Apply an edit ("update") or delete ("delete") to the source calendar.
+
+    Returns the event's new UID (it changes when the start time does).
+    Raises ValueError with a readable message when the bridge refuses.
+    """
+    payload = {"action": action, "uid": uid}
+    if fields is not None:
+        payload.update({
+            "title": fields["title"],
+            "location": fields["location"],
+            "notes": fields["notes"],
+            "all_day": bool(fields["all_day"]),
+            "date": fields["date"],
+        })
+        if not fields["all_day"]:
+            day = date.fromisoformat(fields["date"])
+            start_t = fields["start_time"] or "00:00"
+            start = datetime.combine(
+                day, datetime.strptime(start_t, "%H:%M").time())
+            end = (datetime.combine(
+                day, datetime.strptime(fields["end_time"], "%H:%M").time())
+                if fields["end_time"] else start + timedelta(hours=1))
+            if end <= start:
+                end += timedelta(days=1)
+            if tz:
+                start, end = start.replace(tzinfo=tz), end.replace(tzinfo=tz)
+            else:
+                start, end = start.astimezone(), end.astimezone()
+            payload["start"] = start.isoformat()
+            payload["end"] = end.isoformat()
+    post = poster or (lambda url, body: requests.post(
+        url, json=body, timeout=FETCH_TIMEOUT).json())
+    try:
+        result = post(sub["url"], payload)
+    except Exception as exc:  # noqa: BLE001 — surfaced to the user
+        raise ValueError(f"couldn't reach Google ({exc.__class__.__name__}) — "
+                         "is the calendar script updated and redeployed?")
+    if not isinstance(result, dict) or not result.get("ok"):
+        err = result.get("error") if isinstance(result, dict) else None
+        raise ValueError(err or "Google rejected the change")
+    return result.get("uid") or uid

@@ -31,6 +31,11 @@ This repo contains two pieces:
 - **Use any calendar app** — every adult gets personal iCal (.ics) feed URLs
   showing the schedule as they're allowed to see it. Subscribe once from
   Google Calendar, Outlook, or iPhone/iCloud and stay in sync automatically.
+- **Shared calendars** — pull in calendars others share with you (Settings →
+  Shared calendars); they re-sync every 30 minutes. A Google calendar you can
+  see but don't own works through `integrations/google-calendar-bridge.gs`, a
+  small Apps Script you deploy under your own account; with it, edits and
+  deletes made in the hub are saved back to Google too.
 - **Messaging** — each co-parent pair has a private message space, plus a
   household-wide space for everyone.
 - **Custody swap requests** — ask to switch days for vacations etc.,

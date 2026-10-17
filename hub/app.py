@@ -1076,6 +1076,34 @@ def create_app() -> FastAPI:
         finally:
             conn.close()
 
+    def _event_source(conn, ev):
+        """The calendar subscription a synced event came from, if any."""
+        if not ev["source_id"]:
+            return None
+        return conn.execute("SELECT * FROM calendar_subscriptions WHERE id = ?",
+                            (ev["source_id"],)).fetchone()
+
+    def _push_to_source(conn, ev, action: str, fields=None):
+        """Mirror an edit/delete of a synced event to its source calendar.
+        Returns an error response, or None when it's fine to go ahead."""
+        sub = _event_source(conn, ev)
+        if not calendars.writable(sub) or not ev["source_uid"]:
+            return None
+        try:
+            new_uid = calendars.push_change(sub, action, ev["source_uid"],
+                                            fields, hub_tz(conn))
+        except ValueError as exc:
+            return HTMLResponse(
+                "<div style='font-family:sans-serif;max-width:600px;margin:2rem auto'>"
+                f"<h1>Couldn't save to {html.escape(sub['name'])}</h1>"
+                f"<p>{html.escape(str(exc))}</p><p>Nothing was changed.</p>"
+                "<p><a href='javascript:history.back()'>Go back</a></p></div>",
+                status_code=502)
+        if action == "update":
+            conn.execute("UPDATE events SET source_uid = ? WHERE id = ?",
+                         (new_uid, ev["id"]))
+        return None
+
     def _editable_event(request: Request, conn, event_id: int):
         """The event row if the current adult may see/edit it, else None."""
         ev = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
@@ -1096,6 +1124,7 @@ def create_app() -> FastAPI:
             ev = _editable_event(request, conn, event_id)
             if not ev:
                 return HTMLResponse("Event not found", status_code=404)
+            source = _event_source(conn, ev)
             kid_ids = [
                 r["kid_id"] for r in conn.execute(
                     "SELECT kid_id FROM event_kids WHERE event_id = ?", (event_id,)
@@ -1104,7 +1133,8 @@ def create_app() -> FastAPI:
             return render(
                 request, "event_form.html", conn,
                 event=ev, kids=kids(conn), event_kid_ids=kid_ids,
-                default_date=ev["date"],
+                default_date=ev["date"], source=source,
+                source_writable=calendars.writable(source),
             )
         finally:
             conn.close()
@@ -1120,6 +1150,9 @@ def create_app() -> FastAPI:
             if not ev:
                 return HTMLResponse("Event not found", status_code=404)
             f = await _event_form_fields(request)
+            failed = _push_to_source(conn, ev, "update", f)
+            if failed:
+                return failed
             conn.execute(
                 "UPDATE events SET title = ?, category = ?, date = ?, start_time = ?, "
                 "end_time = ?, all_day = ?, location = ?, notes = ?, private = ?, "
@@ -1148,6 +1181,9 @@ def create_app() -> FastAPI:
             ev = _editable_event(request, conn, event_id)
             if not ev:
                 return HTMLResponse("Event not found", status_code=404)
+            failed = _push_to_source(conn, ev, "delete")
+            if failed:
+                return failed
             if form.get("scope") == "series" and ev["series_id"]:
                 conn.execute("DELETE FROM events WHERE series_id = ?", (ev["series_id"],))
             else:

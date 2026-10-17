@@ -3,8 +3,14 @@
 <div class="card narrow-wide">
   <h1>{% if event %}Edit event{% else %}Add event{% endif %}</h1>
   {% if event and event['source_id'] %}
+  {% if source_writable %}
+  <p class="notice">This event comes from {{ source['name'] }} — title, time, location,
+  notes, and deleting are saved back to Google Calendar. Kids, category, and reminders
+  only apply here and reset to the calendar's defaults when it syncs.</p>
+  {% else %}
   <p class="notice">This event comes from a shared calendar, so changes made here are
   replaced the next time it syncs.</p>
+  {% endif %}
   {% endif %}
   <form method="post"
         action="{% if event %}/events/{{ event['id'] }}/edit{% else %}/events/new{% endif %}"
