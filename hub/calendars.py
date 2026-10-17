@@ -155,8 +155,14 @@ def sync(conn, sub, tz=None, today: date | None = None,
                              sub["id"]))
         conn.commit()
         return -1
+    # Removed while the feed was downloading: don't resurrect its events.
+    if not conn.execute("SELECT id FROM calendar_subscriptions WHERE id = ?",
+                        (sub["id"],)).fetchone():
+        return 0
     conn.execute("DELETE FROM events WHERE source_id = ?", (sub["id"],))
-    kid_ids = kid_ids_of(sub)
+    # kid_ids is a plain list, so skip kids removed since it was saved.
+    existing = {r["id"] for r in conn.execute("SELECT id FROM kids")}
+    kid_ids = [k for k in kid_ids_of(sub) if k in existing]
     for r in rows:
         event_id = db.insert_id(
             conn,

@@ -117,3 +117,29 @@ def test_bad_url_rejected(env, client):  # noqa: F811
     r = client.post("/settings/calendars/add",
                     data={"name": "x", "url": "hello there"})
     assert "doesn't look like a calendar link" in r.text
+
+
+def test_sync_skips_removed_kids_and_subscriptions(env, client):  # noqa: F811
+    do_setup(client)
+    conn = db.connect()
+    leo = conn.execute("SELECT id FROM kids WHERE name = 'Leo'").fetchone()["id"]
+    sub_id = db.insert_id(
+        conn, "INSERT INTO calendar_subscriptions(name, url, kid_ids) "
+        "VALUES('G', 'https://x/y.ics', ?)", (f"{leo},9999",))
+    conn.commit()
+    sub = conn.execute("SELECT * FROM calendar_subscriptions WHERE id = ?",
+                       (sub_id,)).fetchone()
+    assert calendars.sync(conn, sub, fetcher=lambda url: _ics()) == 5
+    assert {r["kid_id"] for r in conn.execute(
+        "SELECT kid_id FROM event_kids")} == {leo}
+
+    # Deleted mid-fetch: nothing comes back.
+    def fetch_then_delete(url):
+        conn.execute("DELETE FROM events WHERE source_id = ?", (sub_id,))
+        conn.execute("DELETE FROM calendar_subscriptions WHERE id = ?", (sub_id,))
+        conn.commit()
+        return _ics()
+    calendars.sync(conn, sub, fetcher=fetch_then_delete)
+    assert conn.execute("SELECT COUNT(*) AS n FROM events WHERE source_id = ?",
+                        (sub_id,)).fetchone()["n"] == 0
+    conn.close()
