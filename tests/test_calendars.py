@@ -143,3 +143,66 @@ def test_sync_skips_removed_kids_and_subscriptions(env, client):  # noqa: F811
     assert conn.execute("SELECT COUNT(*) AS n FROM events WHERE source_id = ?",
                         (sub_id,)).fetchone()["n"] == 0
     conn.close()
+
+
+def test_edits_and_deletes_push_back_to_bridge(env, client, monkeypatch):  # noqa: F811
+    do_setup(client)
+    monkeypatch.setattr(calendars, "fetch", lambda url: _ics())
+    sent = []
+
+    def fake_push(sub, action, uid, fields=None, tz=None, poster=None):
+        sent.append((action, uid, fields and fields["title"]))
+        if fields and fields["title"] == "boom":
+            raise ValueError("that event is no longer on the Google calendar")
+        return "new-uid"
+    monkeypatch.setattr(calendars, "push_change", fake_push)
+    client.post("/settings/calendars/add", data={
+        "name": "Bridge",
+        "url": "https://script.google.com/macros/s/X/exec?key=k&id=c"})
+    conn = db.connect()
+    ev = conn.execute("SELECT * FROM events WHERE title = 'Camping trip' "
+                      "ORDER BY date").fetchone()
+    assert ev["source_uid"] == "trip@test"
+    r = client.get(f"/events/{ev['id']}/edit")
+    assert "saved back to Google Calendar" in r.text
+
+    form = {"title": "Camping trip!", "date": ev["date"], "all_day": "on"}
+    client.post(f"/events/{ev['id']}/edit", data=form)
+    assert sent[-1] == ("update", "trip@test", "Camping trip!")
+    row = conn.execute("SELECT title, source_uid FROM events WHERE id = ?",
+                       (ev["id"],)).fetchone()
+    assert (row["title"], row["source_uid"]) == ("Camping trip!", "new-uid")
+
+    # A refused change leaves the hub untouched.
+    r = client.post(f"/events/{ev['id']}/edit", data={**form, "title": "boom"})
+    assert r.status_code == 502
+    assert conn.execute("SELECT title FROM events WHERE id = ?",
+                        (ev["id"],)).fetchone()["title"] == "Camping trip!"
+
+    client.post(f"/events/{ev['id']}/delete")
+    assert sent[-1][0] == "delete"
+    assert not conn.execute("SELECT id FROM events WHERE id = ?",
+                            (ev["id"],)).fetchone()
+    conn.close()
+
+
+def test_push_change_payload():
+    sub = {"url": "https://script.google.com/macros/s/X/exec?key=k&id=c"}
+    seen = {}
+
+    def poster(url, body):
+        seen.update(body)
+        return {"ok": True, "uid": "u2"}
+    uid = calendars.push_change(sub, "update", "u1", {
+        "title": "Game", "location": "", "notes": "", "all_day": 0,
+        "date": "2026-10-20", "start_time": "18:00", "end_time": "20:00"},
+        ZoneInfo("America/Chicago"), poster)
+    assert uid == "u2"
+    assert seen["start"] == "2026-10-20T18:00:00-05:00"
+    assert seen["end"] == "2026-10-20T20:00:00-05:00"
+    try:
+        calendars.push_change(sub, "delete", "u1",
+                              poster=lambda u, b: {"ok": False, "error": "nope"})
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert str(exc) == "nope"

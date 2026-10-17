@@ -426,6 +426,7 @@ def init_db(conn) -> None:
     _ensure_column(conn, "events", "reminder_sent", "INTEGER NOT NULL DEFAULT 0")
     # Set on events copied in from a subscribed calendar (calendars.py).
     _ensure_column(conn, "events", "source_id", "INTEGER")
+    _ensure_column(conn, "events", "source_uid", "TEXT")
     if version != SCHEMA_VERSION:
         set_setting(conn, "schema_version", SCHEMA_VERSION)
 
