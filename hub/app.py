@@ -1924,6 +1924,12 @@ def create_app() -> FastAPI:
                 task_sections=TASK_SECTIONS,
                 lunch_menus=lunch.get_menus(conn),
                 calendar_subs=calendars.subscriptions(conn),
+                calendar_custody_words={
+                    c["id"]: calendars.custody_keywords(
+                        c, members.get(c["custody_circle_id"], []))
+                    for c in calendars.subscriptions(conn)
+                    if c["custody_circle_id"]
+                },
                 lunch_ignore=(
                     db.get_setting(conn, "lunch_ignore")
                     if db.get_setting(conn, "lunch_ignore") is not None
@@ -2221,6 +2227,43 @@ def create_app() -> FastAPI:
         finally:
             conn.close()
 
+    @app.post("/settings/calendars/{sub_id}/custody")
+    async def settings_calendar_custody(request: Request, sub_id: int):
+        """Make a shared calendar drive a circle's custody days (or stop)."""
+        conn = get_conn()
+        try:
+            redirect = guard(request, conn)
+            if redirect:
+                return redirect
+            sub = conn.execute("SELECT * FROM calendar_subscriptions "
+                               "WHERE id = ?", (sub_id,)).fetchone()
+            if not sub:
+                return RedirectResponse("/settings#calendars", status_code=303)
+            form = await request.form()
+            circle_id = int(form.get("custody_circle_id") or 0)
+            members = circle_members(conn).get(circle_id, [])
+            if not members:
+                circle_id = 0
+            keywords = {
+                str(p["id"]): (form.get(f"keywords_{p['id']}") or "").strip()[:200]
+                for p in members
+                if (form.get(f"keywords_{p['id']}") or "").strip()
+            }
+            conn.execute(
+                "UPDATE calendar_subscriptions SET custody_circle_id = ?, "
+                "custody_keywords = ? WHERE id = ?",
+                (circle_id or None, json.dumps(keywords), sub_id))
+            if not circle_id:
+                conn.execute("DELETE FROM custody_overrides WHERE source_id = ?",
+                             (sub_id,))
+            conn.commit()
+            sub = conn.execute("SELECT * FROM calendar_subscriptions "
+                               "WHERE id = ?", (sub_id,)).fetchone()
+            calendars.sync(conn, sub, hub_tz(conn), hub_today(conn))
+            return RedirectResponse("/settings#calendars", status_code=303)
+        finally:
+            conn.close()
+
     @app.post("/settings/calendars/{sub_id}/delete")
     def settings_calendar_delete(request: Request, sub_id: int):
         """Unsubscribe and remove every event copied from that calendar."""
@@ -2230,8 +2273,11 @@ def create_app() -> FastAPI:
             if redirect:
                 return redirect
             conn.execute("DELETE FROM events WHERE source_id = ?", (sub_id,))
+            conn.execute("DELETE FROM custody_overrides WHERE source_id = ?",
+                         (sub_id,))
             conn.execute("DELETE FROM calendar_subscriptions WHERE id = ?",
                          (sub_id,))
+            db.invalidate_memo(conn)
             conn.commit()
             return RedirectResponse("/settings#calendars", status_code=303)
         finally:

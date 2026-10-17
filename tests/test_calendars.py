@@ -225,3 +225,71 @@ def test_edit_without_uid_asks_for_sync(env, client, monkeypatch):  # noqa: F811
     assert conn.execute("SELECT title FROM events WHERE id = ?",
                         (ev["id"],)).fetchone()["title"] == "Camping trip"
     conn.close()
+
+
+def _custody_ics():
+    fri = TODAY + timedelta(days=(4 - TODAY.weekday()) % 7 + 7)
+    sun = fri + timedelta(days=2)
+    mon = fri + timedelta(days=3)
+    return fri, f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//EN
+BEGIN:VEVENT
+UID:wk@test
+DTSTART:{fri:%Y%m%d}T180000
+DTEND:{sun:%Y%m%d}T180000
+SUMMARY:Leo & Max with Jess
+END:VEVENT
+BEGIN:VEVENT
+UID:mon@test
+DTSTART;VALUE=DATE:{mon:%Y%m%d}
+SUMMARY:Mark
+END:VEVENT
+BEGIN:VEVENT
+UID:x@test
+DTSTART;VALUE=DATE:{mon:%Y%m%d}
+SUMMARY:Field trip
+END:VEVENT
+END:VCALENDAR
+""".encode()
+
+
+def test_custody_calendar_sets_custody_days(env, client, monkeypatch):  # noqa: F811
+    do_setup(client)
+    fri, body = _custody_ics()
+    monkeypatch.setattr(calendars, "fetch", lambda url: body)
+    client.post("/settings/calendars/add",
+                data={"name": "Custody", "url": "https://x/c.ics"})
+    conn = db.connect()
+    sub_id = conn.execute("SELECT id FROM calendar_subscriptions").fetchone()["id"]
+    circle2 = conn.execute(
+        "SELECT circle_id FROM kids WHERE name = 'Leo'").fetchone()["circle_id"]
+    ids = {r["name"]: r["id"] for r in conn.execute("SELECT * FROM parents")}
+
+    r = client.post(f"/settings/calendars/{sub_id}/custody",
+                    data={"custody_circle_id": str(circle2)})
+    assert "sets custody on 4 day(s)" in r.text
+    assert "Field trip" in r.text  # unmatched title is reported
+    assert conn.execute("SELECT COUNT(*) AS n FROM events "
+                        "WHERE source_id = ?", (sub_id,)).fetchone()["n"] == 0
+    rows = {r["date"]: r["parent_id"] for r in conn.execute(
+        "SELECT date, parent_id FROM custody_overrides WHERE source_id = ?",
+        (sub_id,))}
+    sun = fri + timedelta(days=2)
+    assert rows == {
+        fri.isoformat(): ids["Jess"],
+        (fri + timedelta(days=1)).isoformat(): ids["Jess"],
+        sun.isoformat(): ids["Jess"],
+        (fri + timedelta(days=3)).isoformat(): ids["Mark"],
+    }
+
+    # Custom keywords; turning it off clears its custody days.
+    r = client.post(f"/settings/calendars/{sub_id}/custody", data={
+        "custody_circle_id": str(circle2),
+        f"keywords_{ids['Mark']}": "field trip"})
+    assert "“Mark”" in r.text and "“Field trip”" not in r.text
+    client.post(f"/settings/calendars/{sub_id}/custody",
+                data={"custody_circle_id": "0"})
+    assert conn.execute("SELECT COUNT(*) AS n FROM custody_overrides "
+                        "WHERE source_id = ?", (sub_id,)).fetchone()["n"] == 0
+    conn.close()

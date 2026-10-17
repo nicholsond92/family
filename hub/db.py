@@ -427,6 +427,11 @@ def init_db(conn) -> None:
     # Set on events copied in from a subscribed calendar (calendars.py).
     _ensure_column(conn, "events", "source_id", "INTEGER")
     _ensure_column(conn, "events", "source_uid", "TEXT")
+    # A shared calendar can drive a circle's custody instead of adding events.
+    _ensure_column(conn, "calendar_subscriptions", "custody_circle_id", "INTEGER")
+    _ensure_column(conn, "calendar_subscriptions", "custody_keywords", "TEXT")
+    _ensure_column(conn, "calendar_subscriptions", "last_note", "TEXT")
+    _ensure_column(conn, "custody_overrides", "source_id", "INTEGER")
     if version != SCHEMA_VERSION:
         set_setting(conn, "schema_version", SCHEMA_VERSION)
 
