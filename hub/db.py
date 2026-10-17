@@ -183,11 +183,25 @@ CREATE TABLE IF NOT EXISTS push_subscriptions(
   auth TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS calendar_subscriptions(
+  id {ID},
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  kid_ids TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT 'other',
+  private INTEGER NOT NULL DEFAULT 0,
+  created_by INTEGER REFERENCES parents(id) ON DELETE SET NULL,
+  last_synced TEXT,
+  last_error TEXT,
+  last_count INTEGER
+);
 """
 
 # Dropped (children first) when migrating an empty pre-v2 database.
 _APP_TABLES = [
-    "push_subscriptions", "lunch_choices", "task_checks", "tasks",
+    "calendar_subscriptions", "push_subscriptions", "lunch_choices",
+    "task_checks", "tasks",
     "messages", "threads", "swaps", "custody_overrides", "custody_schedule",
     "event_kids", "events", "feeds", "kids", "circle_parents", "circles",
     "parents",
@@ -410,6 +424,8 @@ def init_db(conn) -> None:
     # to existing tables, so ensure them explicitly.
     _ensure_column(conn, "events", "reminder_minutes", "INTEGER")
     _ensure_column(conn, "events", "reminder_sent", "INTEGER NOT NULL DEFAULT 0")
+    # Set on events copied in from a subscribed calendar (calendars.py).
+    _ensure_column(conn, "events", "source_id", "INTEGER")
     if version != SCHEMA_VERSION:
         set_setting(conn, "schema_version", SCHEMA_VERSION)
 

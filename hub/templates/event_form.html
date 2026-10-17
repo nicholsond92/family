@@ -2,6 +2,10 @@
 {% block content %}
 <div class="card narrow-wide">
   <h1>{% if event %}Edit event{% else %}Add event{% endif %}</h1>
+  {% if event and event['source_id'] %}
+  <p class="notice">This event comes from a shared calendar, so changes made here are
+  replaced the next time it syncs.</p>
+  {% endif %}
   <form method="post"
         action="{% if event %}/events/{{ event['id'] }}/edit{% else %}/events/new{% endif %}"
         class="stack">

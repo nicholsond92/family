@@ -15,3 +15,5 @@ psycopg[binary]>=3.1
 pillow>=10.0
 pywebpush>=1.14
 psycopg-pool>=3.2
+icalendar>=6.0
+recurring-ical-events>=3.0
